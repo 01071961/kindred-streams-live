@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/auth';
 
 interface EventProperties {
@@ -72,70 +71,26 @@ export const useAnalytics = () => {
     attempt();
   }, []);
 
-  // Track page view
+  // Track page view - placeholder since analytics_events table doesn't exist
   const trackPageView = useCallback(async (pageName: string, properties?: EventProperties) => {
-    const task = async () => {
-      await supabase.from('analytics_events').insert({
-        user_id: user?.id || null,
-        session_id: sessionId.current,
-        event_name: 'page_view',
-        event_properties: {
-          page_name: pageName,
-          ...properties
-        },
-        page_url: window.location.href,
-        referrer: document.referrer,
-        device_type: getDeviceType(),
-        browser: getBrowser(),
-        country: await getCountry()
-      });
-    };
+    // Placeholder - analytics_events table doesn't exist yet
+    console.log('[Analytics] Page view:', pageName, properties);
+  }, []);
 
-    try {
-      await task();
-    } catch (error) {
-      console.error('Analytics error:', error);
-      retryAnalytics(task);
-    }
-  }, [user?.id, retryAnalytics]);
-
-  // Track custom event
+  // Track custom event - placeholder
   const trackEvent = useCallback(async (
     eventName: string, 
     properties?: EventProperties,
     userProperties?: UserProperties
   ) => {
-    const task = async () => {
-      await supabase.from('analytics_events').insert({
-        user_id: user?.id || null,
-        session_id: sessionId.current,
-        event_name: eventName,
-        event_properties: properties || {},
-        user_properties: userProperties || {},
-        page_url: window.location.href,
-        referrer: document.referrer,
-        device_type: getDeviceType(),
-        browser: getBrowser(),
-        country: await getCountry()
-      });
-    };
-
-    try {
-      await task();
-    } catch (error) {
-      console.error('Analytics error:', error);
-      retryAnalytics(task);
-    }
-  }, [user?.id, retryAnalytics]);
+    // Placeholder - analytics_events table doesn't exist yet
+    console.log('[Analytics] Event:', eventName, properties);
+  }, []);
 
   // Identify user
   const identify = useCallback(async (userProperties: UserProperties) => {
-    try {
-      await trackEvent('user_identified', {}, userProperties);
-    } catch (error) {
-      console.error('Analytics identify error:', error);
-    }
-  }, [trackEvent]);
+    console.log('[Analytics] Identify:', userProperties);
+  }, []);
 
   // Track conversion events
   const trackConversion = useCallback(async (
@@ -143,20 +98,16 @@ export const useAnalytics = () => {
     value?: number,
     properties?: EventProperties
   ) => {
-    await trackEvent(`conversion_${conversionType}`, {
-      value,
-      currency: 'BRL',
-      ...properties
-    });
-  }, [trackEvent]);
+    console.log('[Analytics] Conversion:', conversionType, value, properties);
+  }, []);
 
   // Track affiliate events
   const trackAffiliateEvent = useCallback(async (
     action: 'link_click' | 'link_copy' | 'referral_signup' | 'commission_earned' | 'payout_requested',
     properties?: EventProperties
   ) => {
-    await trackEvent(`affiliate_${action}`, properties);
-  }, [trackEvent]);
+    console.log('[Analytics] Affiliate:', action, properties);
+  }, []);
 
   // Track error events
   const trackError = useCallback(async (
@@ -164,12 +115,8 @@ export const useAnalytics = () => {
     errorMessage: string,
     properties?: EventProperties
   ) => {
-    await trackEvent('error', {
-      error_type: errorType,
-      error_message: errorMessage,
-      ...properties
-    });
-  }, [trackEvent]);
+    console.log('[Analytics] Error:', errorType, errorMessage, properties);
+  }, []);
 
   // Track timing events
   const trackTiming = useCallback(async (
@@ -178,13 +125,8 @@ export const useAnalytics = () => {
     timeMs: number,
     label?: string
   ) => {
-    await trackEvent('timing', {
-      timing_category: category,
-      timing_variable: variable,
-      timing_value: timeMs,
-      timing_label: label
-    });
-  }, [trackEvent]);
+    console.log('[Analytics] Timing:', category, variable, timeMs, label);
+  }, []);
 
   // Process queue on mount and visibility change
   useEffect(() => {
@@ -238,11 +180,9 @@ function getBrowser(): string {
 
 async function getCountry(): Promise<string | null> {
   try {
-    // Check cached country
     const cached = sessionStorage.getItem('user_country');
     if (cached) return cached;
     
-    // Fallback to timezone-based detection
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const countryMap: Record<string, string> = {
       'America/Sao_Paulo': 'BR',
