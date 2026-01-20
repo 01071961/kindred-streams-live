@@ -5,12 +5,12 @@ import { useAuth } from '@/auth';
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 const TIMEOUT_MS = 5000;
-const CACHE_DURATION_MS = 300000; // Cache role for 5 minutes
+const CACHE_DURATION_MS = 300000; // Cache role for 5 minutes (increased from 1 minute)
 
 // Global cache to persist role state across hook instances and re-renders
 const roleCache = new Map<string, { isAdmin: boolean; timestamp: number }>();
 
-// Track if we've ever done a successful check
+// Track if we've ever done a successful check (prevents re-checking on every render)
 let globalHasChecked = false;
 let globalUserId: string | null = null;
 
@@ -96,7 +96,7 @@ export const useAdminRole = () => {
           .from('user_roles')
           .select('role')
           .eq('user_id', user.id)
-          .eq('role', 'admin')
+          .in('role', ['admin', 'owner', 'editor'])
           .maybeSingle();
 
         clearTimeout(timeoutId);
@@ -124,7 +124,7 @@ export const useAdminRole = () => {
             hasCheckedRef.current = true;
           }
         } else {
-          const hasAdminRole = !!data && data.role === 'admin';
+          const hasAdminRole = !!data && ['admin', 'owner', 'editor'].includes(data.role);
           console.log('[useAdminRole] Role check result:', hasAdminRole ? data.role : 'none');
           setIsAdmin(hasAdminRole);
           setCachedRole(user.id, hasAdminRole);

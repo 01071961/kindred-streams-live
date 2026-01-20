@@ -23,8 +23,6 @@ const buttonVariants = cva(
         "gradient-outline": "relative bg-transparent border-0 text-foreground before:absolute before:inset-0 before:rounded-xl before:p-[2px] before:bg-gradient-to-r before:from-primary before:via-accent before:to-primary before:-z-10 after:absolute after:inset-[2px] after:rounded-[10px] after:bg-background after:-z-10 hover:scale-[1.02] hover:before:shadow-glow-primary active:scale-[0.98]",
         // Glow button
         glow: "bg-primary text-primary-foreground shadow-lg shadow-primary/40 hover:shadow-xl hover:shadow-primary/60 hover:scale-[1.05] active:scale-[0.98] transition-all duration-300",
-        // Gradient button
-        gradient: "bg-gradient-to-r from-primary via-accent to-secondary text-primary-foreground font-semibold shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-300",
       },
       size: {
         default: "h-11 px-6 py-2.5 min-h-[44px] max-w-[300px]",

@@ -4,6 +4,7 @@ import {
   Smartphone,
   Youtube,
   Upload,
+  Play,
   Loader2,
   ExternalLink,
   Hash,
@@ -25,6 +26,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 
 interface YouTubeShortsCardProps {
   affiliateId: string | null;
@@ -50,6 +52,7 @@ export function YouTubeShortsCard({
       return;
     }
 
+    // Validate YouTube Shorts URL
     const isValidShortUrl = shortUrl.includes('youtube.com/shorts/') || 
                             shortUrl.includes('youtu.be/');
     
@@ -61,15 +64,34 @@ export function YouTubeShortsCard({
     setIsPosting(true);
 
     try {
-      // Placeholder - affiliate_posts table doesn't exist yet
-      toast.success('Short publicado com sucesso!');
-      onShortPosted?.({ url: shortUrl, title: shortTitle });
-      
-      setShortTitle('');
-      setShortDescription('');
-      setHashtags('');
-      setShortUrl('');
-      setShowDialog(false);
+      if (affiliateId) {
+        const hashtagsFormatted = hashtags
+          .split(/[\s,]+/)
+          .filter(Boolean)
+          .map(tag => tag.startsWith('#') ? tag : `#${tag}`)
+          .join(' ');
+
+        const { error } = await supabase
+          .from('affiliate_posts')
+          .insert({
+            author_id: affiliateId,
+            title: shortTitle.trim() || '📱 Novo Short',
+            content: `📱 Short\n\n${shortDescription}\n\n${hashtagsFormatted}\n\n${shortUrl}`,
+            category: 'shorts',
+          });
+
+        if (error) throw error;
+
+        toast.success('Short publicado com sucesso!');
+        onShortPosted?.({ url: shortUrl, title: shortTitle });
+        
+        // Reset form
+        setShortTitle('');
+        setShortDescription('');
+        setHashtags('');
+        setShortUrl('');
+        setShowDialog(false);
+      }
     } catch (error: any) {
       console.error('Error posting short:', error);
       toast.error('Erro ao publicar Short: ' + error.message);
@@ -78,6 +100,7 @@ export function YouTubeShortsCard({
     }
   };
 
+  // Extract Short ID for preview
   const getShortId = (url: string): string | null => {
     const shortsMatch = url.match(/youtube\.com\/shorts\/([^?&]+)/);
     const shortMatch = url.match(/youtu\.be\/([^?&]+)/);
@@ -142,6 +165,7 @@ export function YouTubeShortsCard({
                 </p>
               </div>
 
+              {/* Short Preview */}
               <AnimatePresence>
                 {shortId && (
                   <motion.div

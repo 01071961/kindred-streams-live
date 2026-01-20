@@ -1,3 +1,4 @@
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/auth';
 import type { Json } from '@/integrations/supabase/types';
 
@@ -15,14 +16,14 @@ export function useAuditLog() {
     const { action, targetTable, targetId, details } = params;
 
     try {
-      // Placeholder - admin_audit_log table doesn't exist yet
-      console.log('[AuditLog] Action:', {
+      await supabase.from('admin_audit_log').insert([{
         admin_id: user?.id || null,
         action,
         target_table: targetTable || null,
         target_id: targetId || null,
         details: details || null,
-      });
+        ip_address: null
+      }]);
     } catch (error) {
       console.error('Error logging audit action:', error);
     }
@@ -40,8 +41,7 @@ export function useAuditLog() {
     const { documentType, documentId, documentNumber, recipientName, recipientEmail, productId, metadata } = params;
 
     try {
-      // Placeholder - document_logs table doesn't exist yet
-      console.log('[AuditLog] Document generation:', {
+      await supabase.from('document_logs').insert([{
         user_id: user?.id || null,
         document_type: documentType,
         document_id: documentId || null,
@@ -51,7 +51,7 @@ export function useAuditLog() {
         product_id: productId || null,
         metadata: metadata || null,
         status: 'generated'
-      });
+      }]);
     } catch (error) {
       console.error('Error logging document generation:', error);
     }

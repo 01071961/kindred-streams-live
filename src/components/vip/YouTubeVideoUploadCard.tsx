@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 
 interface YouTubeVideoUploadCardProps {
   affiliateId: string | null;
@@ -73,6 +74,7 @@ export function YouTubeVideoUploadCard({
       return;
     }
 
+    // Validate YouTube URL
     const isValidUrl = videoUrl.includes('youtube.com/watch') || 
                        videoUrl.includes('youtu.be/') ||
                        videoUrl.includes('youtube.com/embed/');
@@ -85,15 +87,28 @@ export function YouTubeVideoUploadCard({
     setIsPosting(true);
 
     try {
-      // Placeholder - affiliate_posts table doesn't exist yet
-      toast.success('Vídeo publicado na comunidade!');
-      onVideoPosted?.({ url: videoUrl, title: videoTitle });
-      
-      setVideoTitle('');
-      setVideoDescription('');
-      setVideoUrl('');
-      setVideoCategory('education');
-      setShowDialog(false);
+      if (affiliateId) {
+        const { error } = await supabase
+          .from('affiliate_posts')
+          .insert({
+            author_id: affiliateId,
+            title: videoTitle.trim() || '🎬 Novo Vídeo',
+            content: `🎬 Vídeo\n\n${videoDescription}\n\n${videoUrl}`,
+            category: 'video',
+          });
+
+        if (error) throw error;
+
+        toast.success('Vídeo publicado na comunidade!');
+        onVideoPosted?.({ url: videoUrl, title: videoTitle });
+        
+        // Reset form
+        setVideoTitle('');
+        setVideoDescription('');
+        setVideoUrl('');
+        setVideoCategory('education');
+        setShowDialog(false);
+      }
     } catch (error: any) {
       console.error('Error posting video:', error);
       toast.error('Erro ao publicar vídeo: ' + error.message);
@@ -102,6 +117,7 @@ export function YouTubeVideoUploadCard({
     }
   };
 
+  // Extract Video ID for preview
   const getVideoId = (url: string): string | null => {
     const watchMatch = url.match(/youtube\.com\/watch\?v=([^&]+)/);
     const shortMatch = url.match(/youtu\.be\/([^?&]+)/);
@@ -164,6 +180,7 @@ export function YouTubeVideoUploadCard({
                 />
               </div>
 
+              {/* Video Preview */}
               <AnimatePresence>
                 {videoId && (
                   <motion.div

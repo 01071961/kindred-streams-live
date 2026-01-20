@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   User, Building, Target, Link, Check, ChevronRight, ChevronLeft,
@@ -11,7 +11,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/auth';
 import { toast } from 'sonner';
+import type { Json } from '@/integrations/supabase/types';
 
 interface OnboardingStep {
   id: number;
@@ -63,13 +66,9 @@ interface OnboardingData {
   goals: string;
 }
 
-interface OnboardingWizardProps {
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
-}
-
-export const OnboardingWizard = ({ open = false, onOpenChange }: OnboardingWizardProps) => {
-  const [isOpen, setIsOpen] = useState(open);
+export const OnboardingWizard = () => {
+  const { user } = useAuth();
+  const [isOpen, setIsOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [data, setData] = useState<OnboardingData>({
@@ -82,14 +81,64 @@ export const OnboardingWizard = ({ open = false, onOpenChange }: OnboardingWizar
     goals: ''
   });
 
-  const handleOpenChange = (value: boolean) => {
-    setIsOpen(value);
-    onOpenChange?.(value);
+  useEffect(() => {
+    checkOnboardingStatus();
+  }, [user?.id]);
+
+  const checkOnboardingStatus = async () => {
+    if (!user?.id) return;
+
+    try {
+      const { data: progress } = await supabase
+        .from('onboarding_progress')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      if (!progress) {
+        setIsOpen(true);
+        // Create initial onboarding record
+        await supabase.from('onboarding_progress').insert({
+          user_id: user.id,
+          current_step: 1,
+          completed_steps: []
+        });
+      } else if (!progress.is_completed) {
+        setIsOpen(true);
+        setCurrentStep(progress.current_step || 1);
+        if (progress.data) {
+          setData(prev => ({ ...prev, ...(progress.data as Partial<OnboardingData>) }));
+        }
+      }
+    } catch (error) {
+      console.error('Error checking onboarding status:', error);
+    }
+  };
+
+  const updateProgress = async (step: number, completed: boolean = false) => {
+    if (!user?.id) return;
+
+    try {
+      await supabase
+        .from('onboarding_progress')
+        .update({
+          current_step: step,
+          completed_steps: completed ? STEPS.map(s => s.id) : STEPS.filter(s => s.id < step).map(s => s.id),
+          is_completed: completed,
+          completed_at: completed ? new Date().toISOString() : null,
+          data: JSON.parse(JSON.stringify(data)) as Json
+        })
+        .eq('user_id', user.id);
+    } catch (error) {
+      console.error('Error updating onboarding progress:', error);
+    }
   };
 
   const handleNext = async () => {
     if (currentStep < STEPS.length) {
-      setCurrentStep(currentStep + 1);
+      const nextStep = currentStep + 1;
+      setCurrentStep(nextStep);
+      await updateProgress(nextStep);
     }
   };
 
@@ -102,8 +151,16 @@ export const OnboardingWizard = ({ open = false, onOpenChange }: OnboardingWizar
   const handleComplete = async () => {
     setIsLoading(true);
     try {
-      toast.success('Onboarding completo! Bem-vindo!');
-      handleOpenChange(false);
+      await updateProgress(STEPS.length, true);
+      
+      // Update user profile with collected data
+      await supabase
+        .from('profiles')
+        .update({ name: data.name })
+        .eq('user_id', user?.id);
+
+      toast.success('Onboarding completo! Bem-vindo à SKY BRASIL!');
+      setIsOpen(false);
     } catch (error) {
       toast.error('Erro ao completar onboarding');
     } finally {
@@ -112,7 +169,8 @@ export const OnboardingWizard = ({ open = false, onOpenChange }: OnboardingWizar
   };
 
   const handleSkip = async () => {
-    handleOpenChange(false);
+    await updateProgress(STEPS.length, true);
+    setIsOpen(false);
   };
 
   const progress = (currentStep / STEPS.length) * 100;
@@ -130,7 +188,7 @@ export const OnboardingWizard = ({ open = false, onOpenChange }: OnboardingWizar
               <Rocket className="h-12 w-12 text-white" />
             </motion.div>
             <div>
-              <h3 className="text-2xl font-bold">Bem-vindo!</h3>
+              <h3 className="text-2xl font-bold">Bem-vindo à SKY BRASIL!</h3>
               <p className="text-muted-foreground mt-2">
                 Estamos empolgados em ter você aqui. Vamos configurar sua conta para que você 
                 aproveite ao máximo nossa plataforma.
@@ -264,7 +322,7 @@ export const OnboardingWizard = ({ open = false, onOpenChange }: OnboardingWizar
                 id="goals"
                 value={data.goals}
                 onChange={(e) => setData({ ...data, goals: e.target.value })}
-                placeholder="O que você espera alcançar?"
+                placeholder="O que você espera alcançar com a SKY BRASIL?"
                 rows={3}
               />
             </div>
@@ -292,15 +350,15 @@ export const OnboardingWizard = ({ open = false, onOpenChange }: OnboardingWizar
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li className="flex items-center gap-2">
                   <Check className="h-4 w-4 text-green-500" />
-                  Explore o Dashboard
+                  Explore o Dashboard VIP
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="h-4 w-4 text-green-500" />
-                  Configure seu perfil
+                  Copie seu link de afiliado
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="h-4 w-4 text-green-500" />
-                  Comece a explorar
+                  Comece a indicar e ganhar
                 </li>
               </ul>
             </div>
@@ -313,7 +371,7 @@ export const OnboardingWizard = ({ open = false, onOpenChange }: OnboardingWizar
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogContent className="sm:max-w-lg p-0 overflow-hidden">
         <div className="p-6">
           {/* Progress indicator */}

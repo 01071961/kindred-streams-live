@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
 export interface AIInsight {
@@ -36,6 +37,7 @@ export function useAIInsights() {
     try {
       const { attempts, strengths, weaknesses, avgScore, passRate, totalAttempts, trend } = performanceData;
       
+      // Generate insights based on data analysis
       const insights: AIInsight[] = [];
       
       // Analyze average score
@@ -167,20 +169,98 @@ export function useAIInsights() {
     setLoading(true);
     
     try {
-      // Placeholder - tables don't exist yet
-      const insights: AIInsight[] = [
-        {
+      // Fetch comprehensive data
+      const [attemptsRes, progressRes, certificatesRes] = await Promise.all([
+        supabase
+          .from('lesson_quiz_attempts')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(50),
+        supabase
+          .from('lesson_progress')
+          .select('*')
+          .eq('user_id', userId),
+        supabase
+          .from('course_certificates')
+          .select('*')
+          .eq('user_id', userId)
+      ]);
+      
+      const attempts = attemptsRes.data || [];
+      const progress = progressRes.data || [];
+      const certificates = certificatesRes.data || [];
+      
+      const insights: AIInsight[] = [];
+      
+      // Completion insights
+      const completedLessons = progress.filter(p => p.completed).length;
+      const totalLessons = progress.length;
+      const completionRate = totalLessons > 0 ? (completedLessons / totalLessons) * 100 : 0;
+      
+      if (completionRate < 30) {
+        insights.push({
+          type: 'warning',
+          title: 'Baixa Taxa de Conclusão',
+          description: `Você completou apenas ${completionRate.toFixed(0)}% das aulas. Tente dedicar mais tempo aos estudos.`,
+          priority: 'high'
+        });
+      } else if (completionRate >= 80) {
+        insights.push({
+          type: 'strength',
+          title: 'Excelente Progresso!',
+          description: `Você já completou ${completionRate.toFixed(0)}% das aulas. Continue assim!`,
+          priority: 'low'
+        });
+      }
+      
+      // Certificate insights
+      if (certificates.length > 0) {
+        insights.push({
+          type: 'strength',
+          title: `${certificates.length} Certificado(s) Obtido(s)`,
+          description: 'Parabéns pelas suas conquistas! Continue buscando mais certificações.',
+          priority: 'low'
+        });
+      }
+      
+      // Time-based insights
+      const recentAttempts = attempts.filter(a => {
+        const attemptDate = new Date(a.created_at);
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        return attemptDate >= weekAgo;
+      });
+      
+      if (recentAttempts.length === 0 && attempts.length > 0) {
+        insights.push({
           type: 'tip',
-          title: 'Bem-vindo!',
-          description: 'Continue estudando para ver insights personalizados.',
+          title: 'Retome os Estudos',
+          description: 'Você não fez nenhum quiz na última semana. A prática regular é essencial para o aprendizado.',
           priority: 'medium'
-        }
-      ];
+        });
+      }
+      
+      // Study time insights
+      const totalWatchTime = progress.reduce((sum, p) => sum + (p.watch_time_seconds || 0), 0);
+      const hoursWatched = totalWatchTime / 3600;
+      
+      if (hoursWatched >= 10) {
+        insights.push({
+          type: 'strength',
+          title: `${hoursWatched.toFixed(1)} Horas de Estudo`,
+          description: 'Sua dedicação é inspiradora! Continue investindo no seu aprendizado.',
+          priority: 'low'
+        });
+      }
       
       setAnalysis(prev => ({
-        insights,
-        studyPlan: prev?.studyPlan || ['Comece com as aulas introdutórias'],
-        predictedScore: prev?.predictedScore || 70,
+        insights: insights.sort((a, b) => {
+          const priorityOrder = { high: 0, medium: 1, low: 2 };
+          return priorityOrder[a.priority] - priorityOrder[b.priority];
+        }),
+        studyPlan: prev?.studyPlan || [],
+        predictedScore: prev?.predictedScore || 0,
         nextBestTopic: prev?.nextBestTopic || 'Revisão Geral',
         generatedAt: new Date().toISOString()
       }));

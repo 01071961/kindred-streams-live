@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/auth';
 
 interface QuizQuestion {
@@ -54,21 +55,39 @@ export function useAdaptiveDifficulty(lessonId: string) {
     setLoading(true);
 
     try {
-      // Placeholder - lesson_quiz_attempts table doesn't exist yet
-      // Start at medium difficulty
-      setPerformanceStats({
-        totalCorrect: 0,
-        totalQuestions: 0,
-        byDifficulty: {
-          easy: { correct: 0, total: 0 },
-          medium: { correct: 0, total: 0 },
-          hard: { correct: 0, total: 0 }
-        },
-        byTopic: {},
-        currentStreak: 0,
-        estimatedLevel: 'intermediate'
-      });
-      setAdaptiveState(prev => ({ ...prev, currentDifficulty: 'medium' }));
+      // Get all previous attempts for this lesson and related lessons
+      const { data: attempts } = await supabase
+        .from('lesson_quiz_attempts')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (!attempts || attempts.length === 0) {
+        // No history - start at medium difficulty
+        setPerformanceStats({
+          totalCorrect: 0,
+          totalQuestions: 0,
+          byDifficulty: {
+            easy: { correct: 0, total: 0 },
+            medium: { correct: 0, total: 0 },
+            hard: { correct: 0, total: 0 }
+          },
+          byTopic: {},
+          currentStreak: 0,
+          estimatedLevel: 'intermediate'
+        });
+        setAdaptiveState(prev => ({ ...prev, currentDifficulty: 'medium' }));
+      } else {
+        // Calculate performance stats from history
+        const stats = calculatePerformanceStats(attempts);
+        setPerformanceStats(stats);
+        
+        // Set initial difficulty based on estimated level
+        const initialDifficulty = stats.estimatedLevel === 'beginner' ? 'easy' 
+          : stats.estimatedLevel === 'advanced' ? 'hard' : 'medium';
+        setAdaptiveState(prev => ({ ...prev, currentDifficulty: initialDifficulty }));
+      }
     } catch (error) {
       console.error('Error fetching historical performance:', error);
     } finally {
