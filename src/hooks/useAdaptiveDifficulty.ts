@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 
 interface QuizQuestion {
@@ -56,7 +56,7 @@ export function useAdaptiveDifficulty(lessonId: string) {
 
     try {
       // Get all previous attempts for this lesson and related lessons
-      const { data: attempts } = await supabase
+      const { data: attempts } = await externalSupabase
         .from('lesson_quiz_attempts')
         .select('*')
         .eq('user_id', user.id)
@@ -80,7 +80,7 @@ export function useAdaptiveDifficulty(lessonId: string) {
         setAdaptiveState(prev => ({ ...prev, currentDifficulty: 'medium' }));
       } else {
         // Calculate performance stats from history
-        const stats = calculatePerformanceStats(attempts);
+        const stats = calculatePerformanceStats(attempts as any[]);
         setPerformanceStats(stats);
         
         // Set initial difficulty based on estimated level

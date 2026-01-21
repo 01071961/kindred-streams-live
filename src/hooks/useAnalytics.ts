@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 
 interface EventProperties {
@@ -75,7 +75,7 @@ export const useAnalytics = () => {
   // Track page view
   const trackPageView = useCallback(async (pageName: string, properties?: EventProperties) => {
     const task = async () => {
-      await supabase.from('analytics_events').insert({
+      await externalSupabase.from('analytics_events').insert({
         user_id: user?.id || null,
         session_id: sessionId.current,
         event_name: 'page_view',
@@ -106,7 +106,7 @@ export const useAnalytics = () => {
     userProperties?: UserProperties
   ) => {
     const task = async () => {
-      await supabase.from('analytics_events').insert({
+      await externalSupabase.from('analytics_events').insert({
         user_id: user?.id || null,
         session_id: sessionId.current,
         event_name: eventName,
