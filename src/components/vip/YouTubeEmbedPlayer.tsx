@@ -21,9 +21,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { useAuth } from '@/auth';
 
 interface YouTubeEmbedPlayerProps {
   videoUrl: string;
@@ -51,6 +51,29 @@ interface Comment {
   };
 }
 
+// LocalStorage keys (fallback since tables don't exist)
+const COMMENTS_KEY = 'youtube_comments_storage';
+
+function getCommentsStorage(postId: string): Comment[] {
+  try {
+    const storage = JSON.parse(localStorage.getItem(COMMENTS_KEY) || '{}');
+    return storage[postId] || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveComment(postId: string, comment: Comment) {
+  try {
+    const storage = JSON.parse(localStorage.getItem(COMMENTS_KEY) || '{}');
+    if (!storage[postId]) storage[postId] = [];
+    storage[postId].unshift(comment);
+    localStorage.setItem(COMMENTS_KEY, JSON.stringify(storage));
+  } catch (error) {
+    console.error('Error saving comment:', error);
+  }
+}
+
 export function YouTubeEmbedPlayer({
   videoUrl,
   title,
@@ -65,6 +88,7 @@ export function YouTubeEmbedPlayer({
   isLiked = false,
   showComments = true,
 }: YouTubeEmbedPlayerProps) {
+  const { user } = useAuth();
   const [expanded, setExpanded] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
@@ -97,42 +121,9 @@ export function YouTubeEmbedPlayer({
     
     setLoadingComments(true);
     try {
-      const { data, error } = await supabase
-        .from('affiliate_post_comments')
-        .select('*')
-        .eq('post_id', postId)
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      if (error) throw error;
-
-      if (data && data.length > 0) {
-        // Fetch author info
-        const authorIds = [...new Set(data.map(c => c.author_id))];
-        const { data: affiliates } = await supabase
-          .from('vip_affiliates')
-          .select('id, user_id')
-          .in('id', authorIds);
-
-        const userIds = affiliates?.map(a => a.user_id).filter(Boolean) || [];
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('user_id, name, avatar_url')
-          .in('user_id', userIds);
-
-        const profileMap = new Map(profiles?.map(p => [p.user_id, p]) || []);
-        const affiliateMap = new Map(affiliates?.map(a => [a.id, a.user_id]) || []);
-
-        const commentsWithAuthors = data.map(comment => ({
-          ...comment,
-          author: {
-            name: profileMap.get(affiliateMap.get(comment.author_id) || '')?.name || 'Membro VIP',
-            avatar_url: profileMap.get(affiliateMap.get(comment.author_id) || '')?.avatar_url || '',
-          }
-        }));
-
-        setComments(commentsWithAuthors);
-      }
+      // Load from localStorage
+      const storedComments = getCommentsStorage(postId);
+      setComments(storedComments);
     } catch (error) {
       console.error('Error loading comments:', error);
     } finally {
@@ -145,36 +136,27 @@ export function YouTubeEmbedPlayer({
 
     setSubmittingComment(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         toast.error('Faça login para comentar');
         return;
       }
 
-      const { data: affiliate } = await supabase
-        .from('vip_affiliates')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
+      const comment: Comment = {
+        id: crypto.randomUUID(),
+        content: newComment.trim(),
+        author_id: user.id,
+        created_at: new Date().toISOString(),
+        author: {
+          name: user.email?.split('@')[0] || 'Membro VIP',
+          avatar_url: '',
+        },
+      };
 
-      if (!affiliate) {
-        toast.error('Perfil de afiliado não encontrado');
-        return;
-      }
-
-      const { error } = await supabase
-        .from('affiliate_post_comments')
-        .insert({
-          post_id: postId,
-          author_id: affiliate.id,
-          content: newComment.trim(),
-        });
-
-      if (error) throw error;
+      saveComment(postId, comment);
+      setComments(prev => [comment, ...prev]);
 
       toast.success('Comentário adicionado!');
       setNewComment('');
-      loadComments();
     } catch (error: any) {
       console.error('Error adding comment:', error);
       toast.error('Erro ao adicionar comentário');
