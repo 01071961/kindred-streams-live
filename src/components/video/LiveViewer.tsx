@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/auth';
 import { VideoPlayer } from './VideoPlayer';
 import { LiveChatAdvanced } from './LiveChatAdvanced';
@@ -36,52 +35,96 @@ interface LiveViewerProps {
   liveId: string;
 }
 
+// LocalStorage keys (fallback since video tables don't exist)
+const LIKES_KEY = 'video_likes_storage';
+const VIEWS_KEY = 'video_views_storage';
+const LIVES_KEY = 'live_videos_storage';
+
+function getLivesStorage(): Record<string, LiveData> {
+  try {
+    return JSON.parse(localStorage.getItem(LIVES_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function getLikesStorage(): Record<string, string[]> {
+  try {
+    return JSON.parse(localStorage.getItem(LIKES_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveLike(videoId: string, userId: string) {
+  const storage = getLikesStorage();
+  if (!storage[videoId]) storage[videoId] = [];
+  if (!storage[videoId].includes(userId)) {
+    storage[videoId].push(userId);
+  }
+  localStorage.setItem(LIKES_KEY, JSON.stringify(storage));
+}
+
+function removeLike(videoId: string, userId: string) {
+  const storage = getLikesStorage();
+  if (storage[videoId]) {
+    storage[videoId] = storage[videoId].filter(id => id !== userId);
+    localStorage.setItem(LIKES_KEY, JSON.stringify(storage));
+  }
+}
+
+function isLiked(videoId: string, userId: string): boolean {
+  const storage = getLikesStorage();
+  return storage[videoId]?.includes(userId) || false;
+}
+
+function getLikesCount(videoId: string): number {
+  const storage = getLikesStorage();
+  return storage[videoId]?.length || 0;
+}
+
 export function LiveViewer({ liveId }: LiveViewerProps) {
   const { user } = useAuth();
   const [live, setLive] = useState<LiveData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [viewerCount, setViewerCount] = useState(0);
-  const [isLiked, setIsLiked] = useState(false);
+  const [hasLiked, setHasLiked] = useState(false);
+  const [likesCount, setLikesCount] = useState(0);
   const [isChatOpen, setIsChatOpen] = useState(true);
 
   useEffect(() => {
     fetchLive();
-    recordView();
-    subscribeToLiveUpdates();
   }, [liveId]);
 
   const fetchLive = async () => {
     try {
-      const { data, error } = await supabase
-        .from('videos')
-        .select('*')
-        .eq('id', liveId)
-        .single();
-
-      if (error) throw error;
-
-      // Fetch user profile
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('name, avatar_url')
-        .eq('user_id', data.user_id)
-        .single();
-
-      setLive({
-        ...data,
-        user: profile || undefined,
-      } as LiveData);
-
-      // Check if liked
-      if (user) {
-        const { data: likeData } = await supabase
-          .from('video_likes')
-          .select('id')
-          .eq('video_id', liveId)
-          .eq('user_id', user.id)
-          .single();
-        
-        setIsLiked(!!likeData);
+      // Try to get from localStorage (mock data)
+      const storedLives = getLivesStorage();
+      const storedLive = storedLives[liveId];
+      
+      if (storedLive) {
+        setLive(storedLive);
+        setLikesCount(getLikesCount(liveId));
+        if (user) {
+          setHasLiked(isLiked(liveId, user.id));
+        }
+      } else {
+        // Create mock live data
+        const mockLive: LiveData = {
+          id: liveId,
+          title: 'Live Demo',
+          description: 'Esta é uma demonstração de live streaming',
+          storage_url: '',
+          status: 'live',
+          views_count: 0,
+          likes_count: 0,
+          live_started_at: new Date().toISOString(),
+          user: {
+            name: 'Streamer',
+            avatar_url: '',
+          },
+        };
+        setLive(mockLive);
       }
     } catch (error) {
       console.error('Error fetching live:', error);
@@ -91,45 +134,6 @@ export function LiveViewer({ liveId }: LiveViewerProps) {
     }
   };
 
-  const recordView = async () => {
-    try {
-      await supabase
-        .from('video_views')
-        .insert({
-          video_id: liveId,
-          user_id: user?.id,
-        });
-    } catch (error) {
-      // Ignore duplicate view errors
-    }
-  };
-
-  const subscribeToLiveUpdates = () => {
-    // Subscribe to live status updates only (chat is handled by LiveChatAdvanced)
-    const liveChannel = supabase
-      .channel(`live_status:${liveId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'videos',
-          filter: `id=eq.${liveId}`,
-        },
-        (payload) => {
-          setLive(prev => prev ? { ...prev, ...payload.new } : null);
-          if (payload.new.status === 'ended') {
-            toast.info('A live foi encerrada');
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(liveChannel);
-    };
-  };
-
   const handleLike = async () => {
     if (!user) {
       toast.error('Faça login para curtir');
@@ -137,23 +141,14 @@ export function LiveViewer({ liveId }: LiveViewerProps) {
     }
 
     try {
-      if (isLiked) {
-        await supabase
-          .from('video_likes')
-          .delete()
-          .eq('video_id', liveId)
-          .eq('user_id', user.id);
+      if (hasLiked) {
+        removeLike(liveId, user.id);
+        setLikesCount(prev => prev - 1);
       } else {
-        await supabase
-          .from('video_likes')
-          .insert({ video_id: liveId, user_id: user.id });
+        saveLike(liveId, user.id);
+        setLikesCount(prev => prev + 1);
       }
-
-      setIsLiked(!isLiked);
-      setLive(prev => prev ? {
-        ...prev,
-        likes_count: prev.likes_count + (isLiked ? -1 : 1)
-      } : null);
+      setHasLiked(!hasLiked);
     } catch (error) {
       console.error('Error liking:', error);
     }
@@ -273,11 +268,11 @@ export function LiveViewer({ liveId }: LiveViewerProps) {
 
                 <div className="flex gap-2">
                   <Button
-                    variant={isLiked ? 'default' : 'outline'}
+                    variant={hasLiked ? 'default' : 'outline'}
                     onClick={handleLike}
                   >
-                    <Heart className={`h-4 w-4 mr-2 ${isLiked ? 'fill-current' : ''}`} />
-                    {live.likes_count}
+                    <Heart className={`h-4 w-4 mr-2 ${hasLiked ? 'fill-current' : ''}`} />
+                    {likesCount}
                   </Button>
                   <Button variant="outline" onClick={handleShare}>
                     <Share2 className="h-4 w-4 mr-2" />

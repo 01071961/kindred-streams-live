@@ -5,7 +5,6 @@ import { Crown, Lock, Sparkles, ArrowUpCircle, Loader2, Check, Star } from 'luci
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/auth';
 import { cn } from '@/lib/utils';
 
@@ -38,6 +37,17 @@ const TIER_INFO: Record<string, { label: string; icon: string; color: string }> 
   diamond: { label: 'Diamante', icon: '💎', color: 'text-blue-400' },
   platinum: { label: 'Platina', icon: '👑', color: 'text-purple-500' }
 };
+
+// LocalStorage key for user tier (fallback since vip_affiliates table doesn't exist)
+const USER_TIER_KEY = 'user_subscription_tier';
+
+function getUserTier(): string {
+  try {
+    return localStorage.getItem(USER_TIER_KEY) || 'bronze';
+  } catch {
+    return 'bronze';
+  }
+}
 
 function normalizeTier(tier: string | null | undefined): string {
   if (!tier) return 'bronze';
@@ -88,16 +98,8 @@ export function SubscriptionGate({
     }
 
     try {
-      const { data: affiliate, error } = await supabase
-        .from('vip_affiliates')
-        .select('tier, status')
-        .eq('user_id', user.id)
-        .eq('status', 'approved')
-        .maybeSingle();
-
-      if (error) throw error;
-
-      const tier = affiliate?.tier || 'bronze';
+      // Use localStorage as fallback (vip_affiliates table doesn't exist)
+      const tier = getUserTier();
       setUserTier(tier);
 
       const effectiveTiers = requiredTiers || [requiredTier];
@@ -224,14 +226,8 @@ export function useSubscriptionAccess(requiredTier: RequiredTier = 'gold') {
       }
 
       try {
-        const { data: affiliate } = await supabase
-          .from('vip_affiliates')
-          .select('tier, status')
-          .eq('user_id', user.id)
-          .eq('status', 'approved')
-          .maybeSingle();
-
-        const tier = affiliate?.tier || 'bronze';
+        // Use localStorage as fallback
+        const tier = getUserTier();
         const hasAccess = hasTierAccess(tier, requiredTier);
         setState({ loading: false, hasAccess, userTier: tier });
       } catch (error) {

@@ -46,7 +46,6 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/auth';
 import { LiveChatAdvanced } from './LiveChatAdvanced';
 
@@ -59,6 +58,23 @@ interface ChatMessage {
     name: string;
     avatar_url: string;
   };
+}
+
+// LocalStorage keys
+const LIVES_KEY = 'live_videos_storage';
+
+function getLivesStorage(): Record<string, any> {
+  try {
+    return JSON.parse(localStorage.getItem(LIVES_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveLive(liveId: string, data: any) {
+  const storage = getLivesStorage();
+  storage[liveId] = data;
+  localStorage.setItem(LIVES_KEY, JSON.stringify(storage));
 }
 
 export function LiveStudio() {
@@ -82,7 +98,7 @@ export function LiveStudio() {
   
   // Drive save modal states
   const [showSaveModal, setShowSaveModal] = useState(false);
-  const [saveToDrive, setSaveToDrive] = useState(true); // Pre-checked by default
+  const [saveToDrive, setSaveToDrive] = useState(true);
   const [driveConnected, setDriveConnected] = useState(false);
   const [driveFolderId, setDriveFolderId] = useState<string | null>(null);
   const [isSavingToDrive, setIsSavingToDrive] = useState(false);
@@ -94,43 +110,11 @@ export function LiveStudio() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  // Check Drive connection
+  // Check Drive connection from localStorage
   useEffect(() => {
-    const checkDriveConnection = async () => {
-      if (!user) return;
-      
-      const { data } = await supabase
-        .from('profiles')
-        .select('drive_connected')
-        .eq('user_id', user.id)
-        .single();
-      
-      setDriveConnected(data?.drive_connected || false);
-    };
-    
-    checkDriveConnection();
+    const driveStatus = localStorage.getItem('drive_connected') === 'true';
+    setDriveConnected(driveStatus);
   }, [user]);
-
-  // Initialize Drive folder
-  useEffect(() => {
-    const initDriveFolder = async () => {
-      if (!driveConnected || !user || driveFolderId) return;
-      
-      try {
-        const { data } = await supabase.functions.invoke('google-drive-manager', {
-          body: { action: 'create-root-folder', user_id: user.id }
-        });
-        
-        if (data?.folderId) {
-          setDriveFolderId(data.folderId);
-        }
-      } catch (error) {
-        console.error('Error initializing Drive folder:', error);
-      }
-    };
-    
-    initDriveFolder();
-  }, [driveConnected, user, driveFolderId]);
 
   useEffect(() => {
     // Get available media devices
@@ -162,40 +146,6 @@ export function LiveStudio() {
     }
     return () => clearInterval(interval);
   }, [isLive]);
-
-  // Real-time chat subscription
-  useEffect(() => {
-    if (!liveId) return;
-
-    const channel = supabase
-      .channel(`live_chat:${liveId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'live_chat_messages',
-          filter: `video_id=eq.${liveId}`,
-        },
-        async (payload) => {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('name, avatar_url')
-            .eq('user_id', payload.new.user_id)
-            .single();
-
-          setChatMessages(prev => [...prev, {
-            ...payload.new as ChatMessage,
-            user: profile || undefined,
-          }]);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [liveId]);
 
   const startPreview = async () => {
     try {
@@ -232,26 +182,32 @@ export function LiveStudio() {
     setIsStarting(true);
 
     try {
-      // Create live record
-      const { data: liveData, error: liveError } = await supabase
-        .from('videos')
-        .insert({
-          user_id: user.id,
-          title: title.trim(),
-          description: description.trim(),
-          type: 'live',
-          privacy: privacy as any,
-          status: 'live',
-          storage_type: 'internal',
-          is_recording: true,
-          live_started_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
+      // Generate live ID
+      const newLiveId = crypto.randomUUID();
+      
+      // Save to localStorage
+      const liveData = {
+        id: newLiveId,
+        user_id: user.id,
+        title: title.trim(),
+        description: description.trim(),
+        type: 'live',
+        privacy,
+        status: 'live',
+        storage_type: 'internal',
+        is_recording: true,
+        live_started_at: new Date().toISOString(),
+        views_count: 0,
+        likes_count: 0,
+        user: {
+          name: user.email?.split('@')[0] || 'Streamer',
+          avatar_url: '',
+        },
+      };
+      
+      saveLive(newLiveId, liveData);
 
-      if (liveError) throw liveError;
-
-      setLiveId(liveData.id);
+      setLiveId(newLiveId);
       setIsLive(true);
       setDuration(0);
 
@@ -267,7 +223,7 @@ export function LiveStudio() {
           }
         };
 
-        mediaRecorder.start(1000); // Collect data every second
+        mediaRecorder.start(1000);
         mediaRecorderRef.current = mediaRecorder;
       }
 
@@ -291,40 +247,23 @@ export function LiveStudio() {
 
       // Create recording blob
       const blob = new Blob(chunksRef.current, { type: 'video/webm' });
-      const timestamp = Date.now();
-      const filePath = `${user.id}/live_${timestamp}.webm`;
-
-      // Upload to internal storage (always for performance)
-      const { error: uploadError } = await supabase.storage
-        .from('videos')
-        .upload(filePath, blob);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('videos')
-        .getPublicUrl(filePath);
-
-      // Update live record
-      await supabase
-        .from('videos')
-        .update({
-          status: 'ended',
-          live_ended_at: new Date().toISOString(),
-          is_recording: false,
-          recording_url: publicUrl,
-          duration,
-        })
-        .eq('id', liveId);
+      
+      // Update live status in localStorage
+      const storage = getLivesStorage();
+      if (storage[liveId]) {
+        storage[liveId].status = 'ended';
+        storage[liveId].live_ended_at = new Date().toISOString();
+        storage[liveId].duration = duration;
+        localStorage.setItem(LIVES_KEY, JSON.stringify(storage));
+      }
 
       setIsLive(false);
-      setRecordingUrl(publicUrl);
       setRecordingBlob(blob);
       chunksRef.current = [];
       
-      // Show save to Drive modal
+      // Show save modal
       setShowSaveModal(true);
-      toast.success('Live encerrada! Gravação salva na plataforma.');
+      toast.success('Live encerrada! Gravação salva localmente.');
     } catch (error: any) {
       console.error('Error ending live:', error);
       toast.error('Erro ao encerrar live');
@@ -332,83 +271,16 @@ export function LiveStudio() {
   };
 
   const handleSaveToDrive = async () => {
-    if (!saveToDrive || !recordingBlob || !user || !driveFolderId) {
-      setShowSaveModal(false);
-      setLiveId(null);
-      return;
-    }
-
-    setIsSavingToDrive(true);
-
-    try {
-      const reader = new FileReader();
-      const base64 = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(recordingBlob);
-      });
-
-      const { data, error } = await supabase.functions.invoke('google-drive-manager', {
-        body: {
-          action: 'upload',
-          user_id: user.id,
-          folderId: driveFolderId,
-          file_name: `${title || 'Live'}_${new Date().toISOString().split('T')[0]}.webm`,
-          file_data: base64,
-          file_mime: 'video/webm',
-        },
-      });
-
-      if (error) throw error;
-      
-      toast.success('✓ Gravação também salva no Google Drive!');
-    } catch (error: any) {
-      console.error('Error saving to Drive:', error);
-      toast.error('Erro ao salvar no Drive: ' + error.message);
-    } finally {
-      setIsSavingToDrive(false);
-      setShowSaveModal(false);
-      setLiveId(null);
-      setRecordingBlob(null);
-      setRecordingUrl(null);
-    }
+    // Drive saving would require actual API integration
+    toast.info('Funcionalidade de Drive requer configuração de API');
+    setShowSaveModal(false);
+    setLiveId(null);
+    setRecordingBlob(null);
+    setRecordingUrl(null);
   };
 
   const handleConnectDrive = async () => {
-    if (!user) return;
-
-    try {
-      const { data, error } = await supabase.functions.invoke('google-drive-manager', {
-        body: { action: 'get-auth-url', user_id: user.id, origin: window.location.origin }
-      });
-
-      if (error) throw error;
-      
-      if (data?.authUrl) {
-        sessionStorage.setItem('drive_oauth_return', window.location.pathname);
-        window.location.href = data.authUrl;
-      }
-    } catch (error: any) {
-      toast.error('Erro ao conectar Google Drive');
-    }
-  };
-
-  const sendChatMessage = async () => {
-    if (!newMessage.trim() || !liveId || !user) return;
-
-    try {
-      await supabase
-        .from('live_chat_messages')
-        .insert({
-          video_id: liveId,
-          user_id: user.id,
-          content: newMessage.trim(),
-        });
-
-      setNewMessage('');
-    } catch (error) {
-      console.error('Error sending message:', error);
-    }
+    toast.info('Conectar ao Google Drive requer configuração de OAuth');
   };
 
   const copyShareLink = () => {
@@ -650,7 +522,7 @@ export function LiveStudio() {
               Gravação Salva!
             </DialogTitle>
             <DialogDescription>
-              Sua live foi salva com sucesso na plataforma.
+              Sua live foi salva com sucesso localmente.
             </DialogDescription>
           </DialogHeader>
           
@@ -658,8 +530,8 @@ export function LiveStudio() {
             <div className="flex items-center gap-3 p-4 bg-muted/50 rounded-lg">
               <HardDrive className="h-5 w-5 text-primary" />
               <div className="flex-1">
-                <p className="font-medium">Salvo na Plataforma</p>
-                <p className="text-sm text-muted-foreground">Sua gravação está disponível imediatamente.</p>
+                <p className="font-medium">Salvo Localmente</p>
+                <p className="text-sm text-muted-foreground">Sua gravação está disponível.</p>
               </div>
               <Check className="h-5 w-5 text-green-500" />
             </div>

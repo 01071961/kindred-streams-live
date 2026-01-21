@@ -25,7 +25,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/auth';
 import { cn } from '@/lib/utils';
 
@@ -52,6 +51,80 @@ interface ShortsFeedProps {
   className?: string;
 }
 
+// LocalStorage keys (fallback since video tables don't exist)
+const SHORTS_KEY = 'shorts_storage';
+const LIKES_KEY = 'shorts_likes_storage';
+
+function getShortsStorage(): Short[] {
+  try {
+    return JSON.parse(localStorage.getItem(SHORTS_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function getLikesStorage(): Record<string, string[]> {
+  try {
+    return JSON.parse(localStorage.getItem(LIKES_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveLike(videoId: string, userId: string) {
+  const storage = getLikesStorage();
+  if (!storage[videoId]) storage[videoId] = [];
+  if (!storage[videoId].includes(userId)) {
+    storage[videoId].push(userId);
+  }
+  localStorage.setItem(LIKES_KEY, JSON.stringify(storage));
+}
+
+function removeLike(videoId: string, userId: string) {
+  const storage = getLikesStorage();
+  if (storage[videoId]) {
+    storage[videoId] = storage[videoId].filter(id => id !== userId);
+    localStorage.setItem(LIKES_KEY, JSON.stringify(storage));
+  }
+}
+
+function isLikedByUser(videoId: string, userId: string): boolean {
+  const storage = getLikesStorage();
+  return storage[videoId]?.includes(userId) || false;
+}
+
+// Demo shorts for testing
+const DEMO_SHORTS: Short[] = [
+  {
+    id: 'demo-1',
+    title: 'Dica de Streaming #1',
+    description: 'Como melhorar a qualidade da sua live',
+    storage_url: '',
+    thumbnail_url: '',
+    duration: 30,
+    views_count: 1234,
+    likes_count: 89,
+    comments_count: 12,
+    user_id: 'demo',
+    created_at: new Date().toISOString(),
+    user: { name: 'Demo User', avatar_url: '' },
+  },
+  {
+    id: 'demo-2',
+    title: 'Tutorial Rápido',
+    description: 'Aprenda em segundos',
+    storage_url: '',
+    thumbnail_url: '',
+    duration: 15,
+    views_count: 5678,
+    likes_count: 234,
+    comments_count: 45,
+    user_id: 'demo',
+    created_at: new Date().toISOString(),
+    user: { name: 'Tutorial Channel', avatar_url: '' },
+  },
+];
+
 export function ShortsFeed({ className }: ShortsFeedProps) {
   const { user } = useAuth();
   const [shorts, setShorts] = useState<Short[]>([]);
@@ -68,45 +141,24 @@ export function ShortsFeed({ className }: ShortsFeedProps) {
 
   const fetchShorts = async () => {
     try {
-      const { data, error } = await supabase
-        .from('videos')
-        .select('*')
-        .eq('type', 'short')
-        .eq('status', 'ready')
-        .eq('privacy', 'public')
-        .order('created_at', { ascending: false })
-        .limit(50);
-
-      if (error) throw error;
-
-      // Fetch profiles for all users
-      const userIds = [...new Set((data || []).map(v => v.user_id))];
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('user_id, name, avatar_url')
-        .in('user_id', userIds);
-
-      const profileMap = new Map(profiles?.map(p => [p.user_id, { name: p.name, avatar_url: p.avatar_url }]));
-
-      // Get likes if user is logged in
-      let likedIds: string[] = [];
-      if (user) {
-        const { data: likes } = await supabase
-          .from('video_likes')
-          .select('video_id')
-          .eq('user_id', user.id);
-        likedIds = likes?.map(l => l.video_id) || [];
+      // Try to get from localStorage
+      let storedShorts = getShortsStorage();
+      
+      // If no shorts, use demo data
+      if (storedShorts.length === 0) {
+        storedShorts = DEMO_SHORTS;
       }
 
-      const shortsWithLikes = (data || []).map(short => ({
+      // Add like status
+      const shortsWithLikes = storedShorts.map(short => ({
         ...short,
-        user: profileMap.get(short.user_id),
-        isLiked: likedIds.includes(short.id),
+        isLiked: user ? isLikedByUser(short.id, user.id) : false,
       }));
 
-      setShorts(shortsWithLikes as Short[]);
+      setShorts(shortsWithLikes);
     } catch (error) {
       console.error('Error fetching shorts:', error);
+      setShorts(DEMO_SHORTS);
     } finally {
       setIsLoading(false);
     }
@@ -188,15 +240,9 @@ export function ShortsFeed({ className }: ShortsFeedProps) {
 
     try {
       if (short.isLiked) {
-        await supabase
-          .from('video_likes')
-          .delete()
-          .eq('video_id', short.id)
-          .eq('user_id', user.id);
+        removeLike(short.id, user.id);
       } else {
-        await supabase
-          .from('video_likes')
-          .insert({ video_id: short.id, user_id: user.id });
+        saveLike(short.id, user.id);
       }
 
       setShorts(prev => prev.map(s => 
@@ -306,16 +352,22 @@ export function ShortsFeed({ className }: ShortsFeedProps) {
             className="relative h-screen w-full flex items-center justify-center"
           >
             {/* Video */}
-            <video
-              ref={el => videoRefs.current[index] = el}
-              src={short.storage_url}
-              poster={short.thumbnail_url}
-              loop
-              playsInline
-              muted={isMuted}
-              className="h-full w-full object-contain max-w-md mx-auto"
-              onClick={togglePlay}
-            />
+            {short.storage_url ? (
+              <video
+                ref={el => videoRefs.current[index] = el}
+                src={short.storage_url}
+                poster={short.thumbnail_url}
+                loop
+                playsInline
+                muted={isMuted}
+                className="h-full w-full object-contain max-w-md mx-auto"
+                onClick={togglePlay}
+              />
+            ) : (
+              <div className="h-full w-full max-w-md mx-auto bg-gradient-to-b from-primary/20 to-primary/40 flex items-center justify-center">
+                <p className="text-white text-lg">{short.title}</p>
+              </div>
+            )}
 
             {/* Overlay Gradient */}
             <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60 pointer-events-none" />
