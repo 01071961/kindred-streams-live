@@ -28,7 +28,7 @@ const HeroSection = () => {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-              <Button variant="gradient" size="xl" className="gap-3">
+              <Button variant="hero" size="xl" className="gap-3">
                 <Play className="w-5 h-5" />
                 Começar a Assistir
               </Button>

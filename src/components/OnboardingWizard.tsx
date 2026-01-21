@@ -14,7 +14,6 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/auth';
 import { toast } from 'sonner';
-import type { Json } from '@/integrations/supabase/types';
 
 interface OnboardingStep {
   id: number;
@@ -66,6 +65,9 @@ interface OnboardingData {
   goals: string;
 }
 
+// Local storage key for onboarding progress
+const ONBOARDING_KEY = 'onboarding_progress';
+
 export const OnboardingWizard = () => {
   const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
@@ -89,56 +91,45 @@ export const OnboardingWizard = () => {
     if (!user?.id) return;
 
     try {
-      const { data: progress } = await supabase
-        .from('onboarding_progress')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
-
-      if (!progress) {
-        setIsOpen(true);
-        // Create initial onboarding record
-        await supabase.from('onboarding_progress').insert({
-          user_id: user.id,
-          current_step: 1,
-          completed_steps: []
-        });
-      } else if (!progress.is_completed) {
-        setIsOpen(true);
-        setCurrentStep(progress.current_step || 1);
-        if (progress.data) {
-          setData(prev => ({ ...prev, ...(progress.data as Partial<OnboardingData>) }));
+      // Check local storage for onboarding completion
+      const storedProgress = localStorage.getItem(`${ONBOARDING_KEY}_${user.id}`);
+      
+      if (storedProgress) {
+        const progress = JSON.parse(storedProgress);
+        if (progress.isCompleted) {
+          return; // Onboarding already completed
         }
+        setCurrentStep(progress.currentStep || 1);
+        if (progress.data) {
+          setData(prev => ({ ...prev, ...progress.data }));
+        }
+        setIsOpen(true);
+      } else {
+        // First time user - show onboarding
+        setIsOpen(true);
+        saveProgress(1, false);
       }
     } catch (error) {
       console.error('Error checking onboarding status:', error);
     }
   };
 
-  const updateProgress = async (step: number, completed: boolean = false) => {
+  const saveProgress = (step: number, completed: boolean = false) => {
     if (!user?.id) return;
-
-    try {
-      await supabase
-        .from('onboarding_progress')
-        .update({
-          current_step: step,
-          completed_steps: completed ? STEPS.map(s => s.id) : STEPS.filter(s => s.id < step).map(s => s.id),
-          is_completed: completed,
-          completed_at: completed ? new Date().toISOString() : null,
-          data: JSON.parse(JSON.stringify(data)) as Json
-        })
-        .eq('user_id', user.id);
-    } catch (error) {
-      console.error('Error updating onboarding progress:', error);
-    }
+    
+    const progress = {
+      currentStep: step,
+      isCompleted: completed,
+      data: data
+    };
+    localStorage.setItem(`${ONBOARDING_KEY}_${user.id}`, JSON.stringify(progress));
   };
 
   const handleNext = async () => {
     if (currentStep < STEPS.length) {
       const nextStep = currentStep + 1;
       setCurrentStep(nextStep);
-      await updateProgress(nextStep);
+      saveProgress(nextStep);
     }
   };
 
@@ -151,15 +142,17 @@ export const OnboardingWizard = () => {
   const handleComplete = async () => {
     setIsLoading(true);
     try {
-      await updateProgress(STEPS.length, true);
+      saveProgress(STEPS.length, true);
       
       // Update user profile with collected data
-      await supabase
-        .from('profiles')
-        .update({ name: data.name })
-        .eq('user_id', user?.id);
+      if (data.name) {
+        await supabase
+          .from('profiles')
+          .update({ display_name: data.name })
+          .eq('user_id', user?.id);
+      }
 
-      toast.success('Onboarding completo! Bem-vindo à SKY BRASIL!');
+      toast.success('Onboarding completo! Bem-vindo à plataforma!');
       setIsOpen(false);
     } catch (error) {
       toast.error('Erro ao completar onboarding');
@@ -169,7 +162,7 @@ export const OnboardingWizard = () => {
   };
 
   const handleSkip = async () => {
-    await updateProgress(STEPS.length, true);
+    saveProgress(STEPS.length, true);
     setIsOpen(false);
   };
 
@@ -188,7 +181,7 @@ export const OnboardingWizard = () => {
               <Rocket className="h-12 w-12 text-white" />
             </motion.div>
             <div>
-              <h3 className="text-2xl font-bold">Bem-vindo à SKY BRASIL!</h3>
+              <h3 className="text-2xl font-bold">Bem-vindo!</h3>
               <p className="text-muted-foreground mt-2">
                 Estamos empolgados em ter você aqui. Vamos configurar sua conta para que você 
                 aproveite ao máximo nossa plataforma.
@@ -197,15 +190,15 @@ export const OnboardingWizard = () => {
             <div className="grid grid-cols-3 gap-4 pt-4">
               <div className="p-4 rounded-lg bg-muted/50 text-center">
                 <Trophy className="h-6 w-6 mx-auto text-yellow-500" />
-                <p className="text-sm font-medium mt-2">Ganhe Comissões</p>
+                <p className="text-sm font-medium mt-2">Assista Lives</p>
               </div>
               <div className="p-4 rounded-lg bg-muted/50 text-center">
                 <Users className="h-6 w-6 mx-auto text-blue-500" />
-                <p className="text-sm font-medium mt-2">Indique Amigos</p>
+                <p className="text-sm font-medium mt-2">Siga Criadores</p>
               </div>
               <div className="p-4 rounded-lg bg-muted/50 text-center">
                 <DollarSign className="h-6 w-6 mx-auto text-green-500" />
-                <p className="text-sm font-medium mt-2">Receba em PIX</p>
+                <p className="text-sm font-medium mt-2">Interaja</p>
               </div>
             </div>
           </div>
@@ -238,7 +231,7 @@ export const OnboardingWizard = () => {
                 id="role"
                 value={data.role}
                 onChange={(e) => setData({ ...data, role: e.target.value })}
-                placeholder="Ex: Streamer, Influenciador, Marketing"
+                placeholder="Ex: Streamer, Influenciador, Espectador"
               />
             </div>
           </div>
@@ -258,8 +251,8 @@ export const OnboardingWizard = () => {
                   <div className="flex items-center gap-3">
                     <Link className="h-5 w-5 text-primary" />
                     <div>
-                      <p className="font-medium">Quero ser Afiliado</p>
-                      <p className="text-sm text-muted-foreground">Ganhar comissões indicando produtos</p>
+                      <p className="font-medium">Quero Assistir</p>
+                      <p className="text-sm text-muted-foreground">Assistir lives e interagir</p>
                     </div>
                   </div>
                 </Label>
@@ -270,8 +263,8 @@ export const OnboardingWizard = () => {
                   <div className="flex items-center gap-3">
                     <Building className="h-5 w-5 text-primary" />
                     <div>
-                      <p className="font-medium">Sou uma Agência</p>
-                      <p className="text-sm text-muted-foreground">Gerenciar múltiplos afiliados</p>
+                      <p className="font-medium">Quero Transmitir</p>
+                      <p className="text-sm text-muted-foreground">Fazer lives e criar conteúdo</p>
                     </div>
                   </div>
                 </Label>
@@ -282,8 +275,8 @@ export const OnboardingWizard = () => {
                   <div className="flex items-center gap-3">
                     <User className="h-5 w-5 text-primary" />
                     <div>
-                      <p className="font-medium">Quero Comprar</p>
-                      <p className="text-sm text-muted-foreground">Acessar cursos e produtos</p>
+                      <p className="font-medium">Ambos</p>
+                      <p className="text-sm text-muted-foreground">Assistir e transmitir</p>
                     </div>
                   </div>
                 </Label>
@@ -322,7 +315,7 @@ export const OnboardingWizard = () => {
                 id="goals"
                 value={data.goals}
                 onChange={(e) => setData({ ...data, goals: e.target.value })}
-                placeholder="O que você espera alcançar com a SKY BRASIL?"
+                placeholder="O que você espera alcançar com a plataforma?"
                 rows={3}
               />
             </div>
@@ -350,15 +343,15 @@ export const OnboardingWizard = () => {
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li className="flex items-center gap-2">
                   <Check className="h-4 w-4 text-green-500" />
-                  Explore o Dashboard VIP
+                  Explore as lives ao vivo
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="h-4 w-4 text-green-500" />
-                  Copie seu link de afiliado
+                  Siga seus streamers favoritos
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="h-4 w-4 text-green-500" />
-                  Comece a indicar e ganhar
+                  Participe do chat e interaja
                 </li>
               </ul>
             </div>

@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface TwoFactorSetupProps {
@@ -15,6 +14,9 @@ interface TwoFactorSetupProps {
   userId: string;
   onComplete?: () => void;
 }
+
+// Local storage key for 2FA status
+const TWO_FACTOR_KEY = 'two_factor_enabled';
 
 const TwoFactorSetup = ({ open, onOpenChange, userId, onComplete }: TwoFactorSetupProps) => {
   const { t } = useTranslation();
@@ -43,8 +45,8 @@ const TwoFactorSetup = ({ open, onOpenChange, userId, onComplete }: TwoFactorSet
     setSecret(newSecret);
     
     // Generate QR code URL (Google Authenticator format)
-    const issuer = 'SKY BRASIL';
-    const otpAuthUrl = `otpauth://totp/${issuer}:user@skybrasil.com?secret=${newSecret}&issuer=${issuer}`;
+    const issuer = 'StreamApp';
+    const otpAuthUrl = `otpauth://totp/${issuer}:user@streamapp.com?secret=${newSecret}&issuer=${issuer}`;
     setQrCodeUrl(`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(otpAuthUrl)}`);
     
     // Generate backup codes
@@ -62,16 +64,12 @@ const TwoFactorSetup = ({ open, onOpenChange, userId, onComplete }: TwoFactorSet
     // For demo purposes, accept any 6-digit code
     if (verificationCode.length === 6 && /^\d+$/.test(verificationCode)) {
       try {
-        // Store 2FA status in profiles
-        const { error } = await supabase
-          .from('profiles')
-          .update({ 
-            two_factor_enabled: true,
-            two_factor_secret: secret
-          })
-          .eq('id', userId);
-
-        if (error) throw error;
+        // Store 2FA status in local storage (since the column doesn't exist in DB)
+        localStorage.setItem(`${TWO_FACTOR_KEY}_${userId}`, JSON.stringify({
+          enabled: true,
+          secret: secret,
+          enabledAt: new Date().toISOString()
+        }));
 
         toast({
           title: t('common.success'),
