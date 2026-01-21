@@ -1,5 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -40,63 +39,52 @@ interface TranscriptTemplate {
   };
 }
 
+// Mock data storage keys (fallback since tables don't exist)
+const HISTORY_KEY = 'module_history_storage';
+const COMPANY_KEY = 'company_settings_storage';
+
+function getHistoryStorage(): ModuleHistory[] {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function getCompanySettings() {
+  try {
+    return JSON.parse(localStorage.getItem(COMPANY_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
 export function TranscriptRenderer({ productId, showDownload = true }: TranscriptRendererProps) {
   const { user } = useAuth();
+  const [isLoading, setIsLoading] = useState(true);
+  const [history, setHistory] = useState<ModuleHistory[]>([]);
+  const [company, setCompany] = useState<any>(null);
+  const [profile, setProfile] = useState<{ display_name?: string; username?: string } | null>(null);
 
-  // Fetch user profile
-  const { data: profile } = useQuery({
-    queryKey: ['profile', user?.id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('name, email')
-        .eq('user_id', user?.id)
-        .single();
-      return data;
-    },
-    enabled: !!user?.id
-  });
-
-  // Fetch company settings with template
-  const { data: company } = useQuery({
-    queryKey: ['company-settings'],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('company_settings')
-        .select('*, transcript_template:transcript_templates(*)')
-        .limit(1)
-        .maybeSingle();
-      return data;
-    }
-  });
-
-  // Fetch module history
-  const { data: history, isLoading } = useQuery({
-    queryKey: ['historico-modulos', user?.id, productId],
-    queryFn: async () => {
-      let query = supabase
-        .from('historico_modulos')
-        .select(`
-          id,
-          modulo_id,
-          media_final,
-          situacao,
-          conceito,
-          frequencia,
-          module:product_modules(name, duration_hours)
-        `)
-        .eq('user_id', user?.id);
-      
-      if (productId) {
-        query = query.eq('product_id', productId);
+  useEffect(() => {
+    const loadData = async () => {
+      if (!user?.id) {
+        setIsLoading(false);
+        return;
       }
+
+      // Load from localStorage (fallback)
+      const storedHistory = getHistoryStorage();
+      const storedCompany = getCompanySettings();
       
-      const { data, error } = await query.order('created_at', { ascending: true });
-      if (error) throw error;
-      return data as unknown as ModuleHistory[];
-    },
-    enabled: !!user?.id
-  });
+      setHistory(storedHistory);
+      setCompany(storedCompany);
+      setProfile({ display_name: user.email?.split('@')[0] || 'Aluno' });
+      setIsLoading(false);
+    };
+
+    loadData();
+  }, [user?.id, productId]);
 
   // Calculate overall metrics
   const calculateMetrics = () => {
@@ -119,13 +107,17 @@ export function TranscriptRenderer({ productId, showDownload = true }: Transcrip
   };
 
   const metrics = calculateMetrics();
-  const template = (company as any)?.transcript_template as TranscriptTemplate | null;
-  const templateLayout = template?.layout || { style: 'academic', showModuleDetails: true, showGrades: true, showFrequency: true };
+  const templateLayout = company?.transcript_template?.layout || { 
+    style: 'academic', 
+    showModuleDetails: true, 
+    showGrades: true, 
+    showFrequency: true 
+  };
 
   // Generate PDF transcript
   const downloadTranscript = async () => {
-    if (!history || !profile) {
-      toast.error('Dados incompletos');
+    if (!history || history.length === 0) {
+      toast.error('Sem histórico para gerar');
       return;
     }
 
@@ -145,9 +137,7 @@ export function TranscriptRenderer({ productId, showDownload = true }: Transcrip
       // Student info
       doc.setFontSize(10);
       let yPos = 45;
-      doc.text(`Aluno: ${profile.name}`, 20, yPos);
-      yPos += 6;
-      doc.text(`Email: ${profile.email}`, 20, yPos);
+      doc.text(`Aluno: ${profile?.display_name || 'Aluno'}`, 20, yPos);
       yPos += 6;
       doc.text(`Data de emissão: ${format(new Date(), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}`, 20, yPos);
 

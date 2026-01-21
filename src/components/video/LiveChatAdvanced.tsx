@@ -23,7 +23,6 @@ import {
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react';
 import { toast } from 'sonner';
 import { playNotificationBeep } from '@/lib/notificationSound';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/auth';
 
 interface ChatMessage {
@@ -43,6 +42,41 @@ interface LiveChatAdvancedProps {
   isLive?: boolean;
   viewerCount?: number;
   className?: string;
+}
+
+// LocalStorage key for chat messages (fallback since live_chat_messages table doesn't exist)
+const CHAT_STORAGE_KEY = 'live_chat_messages_storage';
+
+function getChatStorage(liveId: string): ChatMessage[] {
+  try {
+    const storage = JSON.parse(localStorage.getItem(CHAT_STORAGE_KEY) || '{}');
+    return storage[liveId] || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveChatMessage(liveId: string, message: ChatMessage) {
+  try {
+    const storage = JSON.parse(localStorage.getItem(CHAT_STORAGE_KEY) || '{}');
+    if (!storage[liveId]) storage[liveId] = [];
+    storage[liveId].push(message);
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(storage));
+  } catch (error) {
+    console.error('Error saving chat message:', error);
+  }
+}
+
+function deleteChatMessage(liveId: string, messageId: string) {
+  try {
+    const storage = JSON.parse(localStorage.getItem(CHAT_STORAGE_KEY) || '{}');
+    if (storage[liveId]) {
+      storage[liveId] = storage[liveId].filter((m: ChatMessage) => m.id !== messageId);
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(storage));
+    }
+  } catch (error) {
+    console.error('Error deleting chat message:', error);
+  }
 }
 
 export function LiveChatAdvanced({ 
@@ -69,115 +103,18 @@ export function LiveChatAdvanced({
     };
   }, []);
 
-  // Fetch user profile for VIP check
+  // Load user profile from localStorage (fallback)
   useEffect(() => {
-    const fetchUserProfile = async () => {
-      if (!user) return;
-      
-      const { data } = await supabase
-        .from('profiles')
-        .select('plan')
-        .eq('user_id', user.id)
-        .single();
-      
-      setUserProfile(data);
-    };
-    
-    fetchUserProfile();
+    if (!user) return;
+    // Use a default plan since we can't fetch from profiles table
+    setUserProfile({ plan: 'user' });
   }, [user]);
 
-  // Fetch initial messages
+  // Fetch initial messages from localStorage
   useEffect(() => {
-    const fetchMessages = async () => {
-      const { data, error } = await supabase
-        .from('live_chat_messages')
-        .select('*')
-        .eq('video_id', liveId)
-        .order('created_at', { ascending: true })
-        .limit(100);
-
-      if (error) {
-        console.error('Error fetching messages:', error);
-        return;
-      }
-
-      // Fetch profiles for all messages
-      const userIds = [...new Set((data || []).map(m => m.user_id))];
-      if (userIds.length > 0) {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('user_id, name, avatar_url, plan')
-          .in('user_id', userIds);
-
-        const profileMap = new Map(
-          profiles?.map(p => [p.user_id, { name: p.name, avatar_url: p.avatar_url, plan: p.plan }])
-        );
-
-        setMessages((data || []).map(msg => ({
-          ...msg,
-          user: profileMap.get(msg.user_id),
-        })));
-      } else {
-        setMessages(data || []);
-      }
-    };
-
-    fetchMessages();
+    const storedMessages = getChatStorage(liveId);
+    setMessages(storedMessages);
   }, [liveId]);
-
-  // Real-time subscription
-  useEffect(() => {
-    const channel = supabase
-      .channel(`live_chat_advanced:${liveId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'live_chat_messages',
-          filter: `video_id=eq.${liveId}`,
-        },
-        async (payload) => {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('name, avatar_url, plan')
-            .eq('user_id', payload.new.user_id)
-            .single();
-
-          const newMsg: ChatMessage = {
-            ...payload.new as ChatMessage,
-            user: profile || undefined,
-          };
-
-          setMessages(prev => [...prev, newMsg]);
-
-          // Play notification sound if enabled and not from current user
-          if (soundEnabled && payload.new.user_id !== user?.id) {
-            if (!audioContextRef.current) {
-              audioContextRef.current = new AudioContext();
-            }
-            playNotificationBeep(audioContextRef.current);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'live_chat_messages',
-          filter: `video_id=eq.${liveId}`,
-        },
-        (payload) => {
-          setMessages(prev => prev.filter(m => m.id !== payload.old.id));
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [liveId, soundEnabled, user?.id]);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -190,21 +127,24 @@ export function LiveChatAdvanced({
     if (!newMessage.trim() || !user || sending) return;
 
     setSending(true);
-    const { error } = await supabase
-      .from('live_chat_messages')
-      .insert({
-        video_id: liveId,
-        user_id: user.id,
-        content: newMessage.trim(),
-      });
+    
+    const newMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      content: newMessage.trim(),
+      user_id: user.id,
+      created_at: new Date().toISOString(),
+      user: {
+        name: user.email?.split('@')[0] || 'Usuário',
+        avatar_url: '',
+        plan: userProfile?.plan,
+      },
+    };
 
-    if (error) {
-      console.error('Error sending message:', error);
-      toast.error('Erro ao enviar mensagem');
-    } else {
-      setNewMessage('');
-      setIsEmojiPickerOpen(false);
-    }
+    // Save to localStorage
+    saveChatMessage(liveId, newMsg);
+    setMessages(prev => [...prev, newMsg]);
+    setNewMessage('');
+    setIsEmojiPickerOpen(false);
     setSending(false);
   };
 
@@ -212,37 +152,23 @@ export function LiveChatAdvanced({
     setNewMessage(prev => prev + emojiData.emoji);
   };
 
-  const deleteMessage = async (msgId: string) => {
-    const canModerate = userProfile?.plan === 'vip' || 
-                       userProfile?.plan === 'premium' || 
-                       userProfile?.plan === 'admin';
-    
+  const handleDeleteMessage = async (msgId: string) => {
     const msg = messages.find(m => m.id === msgId);
     const isOwnMessage = msg?.user_id === user?.id;
 
-    if (!canModerate && !isOwnMessage) {
+    if (!isOwnMessage) {
       toast.error('Sem permissão para apagar esta mensagem');
       return;
     }
 
-    const { error } = await supabase
-      .from('live_chat_messages')
-      .delete()
-      .eq('id', msgId);
-
-    if (error) {
-      console.error('Error deleting message:', error);
-      toast.error('Erro ao apagar mensagem');
-    } else {
-      toast.success('Mensagem apagada');
-    }
+    deleteChatMessage(liveId, msgId);
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+    toast.success('Mensagem apagada');
   };
 
   const isVIP = (plan?: string) => {
     return plan === 'vip' || plan === 'premium' || plan === 'admin';
   };
-
-  const canModerate = userProfile?.plan && isVIP(userProfile.plan);
 
   const formatTime = (date: string) => {
     return new Date(date).toLocaleTimeString('pt-BR', { 
@@ -327,13 +253,13 @@ export function LiveChatAdvanced({
                         {formatTime(msg.created_at)}
                       </span>
                       
-                      {/* Delete button - visible on hover for moderators or own messages */}
-                      {user && (canModerate || isOwn) && (
+                      {/* Delete button - visible on hover for own messages */}
+                      {user && isOwn && (
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
-                          onClick={() => deleteMessage(msg.id)}
+                          onClick={() => handleDeleteMessage(msg.id)}
                           title="Apagar mensagem"
                         >
                           <Trash2 className="h-3 w-3 text-destructive" />

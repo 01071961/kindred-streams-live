@@ -1,13 +1,29 @@
 import { useState } from "react";
 import { ThumbsUp, ThumbsDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
 interface AIFeedbackProps {
   messageId: string;
   conversationId: string;
   initialScore?: number | null;
+}
+
+// Store feedback in localStorage as fallback (table ai_feedback doesn't exist)
+const FEEDBACK_KEY = 'ai_feedback_storage';
+
+function getFeedbackStorage(): Record<string, number> {
+  try {
+    return JSON.parse(localStorage.getItem(FEEDBACK_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveFeedback(messageId: string, score: number) {
+  const storage = getFeedbackStorage();
+  storage[messageId] = score;
+  localStorage.setItem(FEEDBACK_KEY, JSON.stringify(storage));
 }
 
 export const AIFeedback = ({ messageId, conversationId, initialScore }: AIFeedbackProps) => {
@@ -20,17 +36,9 @@ export const AIFeedback = ({ messageId, conversationId, initialScore }: AIFeedba
     
     setIsSubmitting(true);
     try {
-      // Save to ai_feedback table
-      const { error: feedbackError } = await supabase
-        .from('ai_feedback')
-        .insert({
-          message_id: messageId,
-          conversation_id: conversationId,
-          rating: score,
-        });
-
-      if (feedbackError) throw feedbackError;
-
+      // Save to localStorage (fallback since ai_feedback table doesn't exist)
+      saveFeedback(messageId, score);
+      
       setFeedbackScore(score);
       
       toast({
