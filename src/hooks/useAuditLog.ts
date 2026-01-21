@@ -1,12 +1,11 @@
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
-import type { Json } from '@/integrations/supabase/types';
 
 interface AuditLogParams {
   action: string;
   targetTable?: string;
   targetId?: string;
-  details?: Json;
+  details?: Record<string, any>;
 }
 
 export function useAuditLog() {
@@ -16,7 +15,7 @@ export function useAuditLog() {
     const { action, targetTable, targetId, details } = params;
 
     try {
-      await supabase.from('admin_audit_log').insert([{
+      await externalSupabase.from('admin_audit_log').insert([{
         admin_id: user?.id || null,
         action,
         target_table: targetTable || null,
@@ -36,12 +35,12 @@ export function useAuditLog() {
     recipientName?: string;
     recipientEmail?: string;
     productId?: string;
-    metadata?: Json;
+    metadata?: Record<string, any>;
   }): Promise<void> => {
     const { documentType, documentId, documentNumber, recipientName, recipientEmail, productId, metadata } = params;
 
     try {
-      await supabase.from('document_logs').insert([{
+      await externalSupabase.from('document_logs').insert([{
         user_id: user?.id || null,
         document_type: documentType,
         document_id: documentId || null,

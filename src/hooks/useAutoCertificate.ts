@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 import { toast } from 'sonner';
 
@@ -31,7 +31,7 @@ export function useAutoCertificate(productId: string | undefined) {
 
     try {
       // Check if certificate already exists
-      const { data: existingCert } = await supabase
+      const { data: existingCert } = await externalSupabase
         .from('course_certificates')
         .select('*')
         .eq('user_id', user.id)
@@ -39,20 +39,21 @@ export function useAutoCertificate(productId: string | undefined) {
         .maybeSingle();
 
       if (existingCert) {
-        setCertificate(existingCert);
+        setCertificate(existingCert as CertificateData);
         setIsEligible(true);
         return;
       }
 
       // Check if user is eligible (100% progress)
-      const { data: enrollment } = await supabase
+      const { data: enrollment } = await externalSupabase
         .from('enrollments')
         .select('progress_percent')
         .eq('user_id', user.id)
         .eq('product_id', productId)
         .maybeSingle();
 
-      setIsEligible(enrollment?.progress_percent >= 100);
+      const enrollmentData = enrollment as any;
+      setIsEligible(enrollmentData?.progress_percent >= 100);
     } catch (error) {
       console.error('Error checking certificate:', error);
     }
@@ -64,20 +65,23 @@ export function useAutoCertificate(productId: string | undefined) {
     setIsGenerating(true);
     try {
       // Get course info
-      const { data: product } = await supabase
+      const { data: product } = await externalSupabase
         .from('products')
         .select('name')
         .eq('id', productId)
         .single();
 
+      const productData = product as any;
+
       // Get quiz scores for average
-      const { data: quizAttempts } = await supabase
+      const { data: quizAttempts } = await externalSupabase
         .from('lesson_quiz_attempts')
         .select('score, lesson:product_lessons!inner(module:product_modules!inner(product_id))')
         .eq('user_id', user.id)
         .eq('passed', true);
 
-      const relevantScores = (quizAttempts || [])
+      const attemptsData = (quizAttempts as any[]) || [];
+      const relevantScores = attemptsData
         .filter((a: any) => a.lesson?.module?.product_id === productId)
         .map((a: any) => a.score);
 
@@ -86,36 +90,38 @@ export function useAutoCertificate(productId: string | undefined) {
         : 100;
 
       // Get total course hours
-      const { data: lessons } = await supabase
+      const { data: lessons } = await externalSupabase
         .from('product_lessons')
         .select('video_duration, module:product_modules!inner(product_id)')
         .eq('module.product_id', productId);
 
-      const totalMinutes = (lessons || [])
+      const lessonsData = (lessons as any[]) || [];
+      const totalMinutes = lessonsData
         .reduce((acc, l) => acc + ((l.video_duration || 0) / 60), 0);
       const courseHours = Math.max(1, Math.round(totalMinutes / 60));
 
       // Get user profile for name
-      const { data: profile } = await supabase
+      const { data: profile } = await externalSupabase
         .from('profiles')
-        .select('name')
+        .select('display_name, username')
         .eq('user_id', user.id)
         .single();
 
-      const finalName = studentName || profile?.name || user.email?.split('@')[0] || 'Aluno';
+      const profileData = profile as any;
+      const finalName = studentName || profileData?.display_name || profileData?.username || user.email?.split('@')[0] || 'Aluno';
 
       // Generate unique codes
       const certNumber = `SKY-${new Date().getFullYear()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
       const valCode = Math.random().toString(36).substring(2, 10).toUpperCase();
 
       // Create certificate
-      const { data: newCert, error } = await supabase
+      const { data: newCert, error } = await externalSupabase
         .from('course_certificates')
         .insert({
           user_id: user.id,
           product_id: productId,
           student_name: finalName,
-          course_name: product?.name || 'Curso',
+          course_name: productData?.name || 'Curso',
           course_hours: courseHours,
           final_score: avgScore,
           certificate_number: certNumber,
@@ -127,7 +133,7 @@ export function useAutoCertificate(productId: string | undefined) {
 
       if (error) throw error;
 
-      setCertificate(newCert);
+      setCertificate(newCert as CertificateData);
       toast.success('🎓 Certificado gerado com sucesso!');
       
       return newCert;

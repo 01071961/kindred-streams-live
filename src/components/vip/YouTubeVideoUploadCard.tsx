@@ -33,7 +33,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 
 interface YouTubeVideoUploadCardProps {
   affiliateId: string | null;
@@ -88,7 +88,7 @@ export function YouTubeVideoUploadCard({
 
     try {
       if (affiliateId) {
-        const { error } = await supabase
+        const { error } = await externalSupabase
           .from('affiliate_posts')
           .insert({
             author_id: affiliateId,

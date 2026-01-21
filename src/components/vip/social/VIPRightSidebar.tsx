@@ -5,18 +5,14 @@ import {
   TrendingUp,
   Users,
   Radio,
-  ExternalLink,
   ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useVIPFollow } from '@/hooks/useVIPSocial';
-import { cn } from '@/lib/utils';
 
 interface SuggestedUser {
   id: string;
@@ -51,15 +47,15 @@ export function VIPRightSidebar() {
   useEffect(() => {
     // Fetch suggested users
     const fetchSuggestions = async () => {
-      const { data } = await supabase
+      const { data } = await externalSupabase
         .from('profiles')
-        .select('user_id, name, avatar_url')
+        .select('user_id, display_name, username, avatar_url')
         .limit(5);
 
       if (data) {
-        setSuggestedUsers(data.map(u => ({
+        setSuggestedUsers((data as any[]).map(u => ({
           id: u.user_id,
-          full_name: u.name,
+          full_name: u.display_name || u.username,
           avatar_url: u.avatar_url,
           followers_count: Math.floor(Math.random() * 10000),
           is_vip: Math.random() > 0.7,
@@ -80,19 +76,25 @@ export function VIPRightSidebar() {
 
     // Fetch live streams
     const fetchLives = async () => {
-      const { data } = await supabase
+      const { data } = await externalSupabase
         .from('vip_posts')
         .select(`
           id,
           title,
-          author:profiles!vip_posts_author_id_fkey(id, full_name, avatar_url)
+          author:profiles!vip_posts_author_id_fkey(id, display_name, avatar_url)
         `)
         .eq('is_live', true)
         .limit(5);
 
       if (data) {
-        setLiveStreams(data.map((stream: any) => ({
-          ...stream,
+        setLiveStreams((data as any[]).map((stream: any) => ({
+          id: stream.id,
+          title: stream.title,
+          author: {
+            id: stream.author?.id,
+            full_name: stream.author?.display_name,
+            avatar_url: stream.author?.avatar_url,
+          },
           viewers_count: Math.floor(Math.random() * 500) + 10,
         })));
       }

@@ -4,7 +4,6 @@ import {
   Smartphone,
   Youtube,
   Upload,
-  Play,
   Loader2,
   ExternalLink,
   Hash,
@@ -26,7 +25,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 
 interface YouTubeShortsCardProps {
   affiliateId: string | null;
@@ -71,7 +70,7 @@ export function YouTubeShortsCard({
           .map(tag => tag.startsWith('#') ? tag : `#${tag}`)
           .join(' ');
 
-        const { error } = await supabase
+        const { error } = await externalSupabase
           .from('affiliate_posts')
           .insert({
             author_id: affiliateId,

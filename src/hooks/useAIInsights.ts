@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useToast } from '@/hooks/use-toast';
 
 export interface AIInsight {
@@ -169,32 +169,32 @@ export function useAIInsights() {
     setLoading(true);
     
     try {
-      // Fetch comprehensive data
+      // Fetch comprehensive data from external Supabase
       const [attemptsRes, progressRes, certificatesRes] = await Promise.all([
-        supabase
+        externalSupabase
           .from('lesson_quiz_attempts')
           .select('*')
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
           .limit(50),
-        supabase
+        externalSupabase
           .from('lesson_progress')
           .select('*')
           .eq('user_id', userId),
-        supabase
+        externalSupabase
           .from('course_certificates')
           .select('*')
           .eq('user_id', userId)
       ]);
       
-      const attempts = attemptsRes.data || [];
-      const progress = progressRes.data || [];
-      const certificates = certificatesRes.data || [];
+      const attempts = (attemptsRes.data as any[]) || [];
+      const progress = (progressRes.data as any[]) || [];
+      const certificates = (certificatesRes.data as any[]) || [];
       
       const insights: AIInsight[] = [];
       
       // Completion insights
-      const completedLessons = progress.filter(p => p.completed).length;
+      const completedLessons = progress.filter((p: any) => p.completed).length;
       const totalLessons = progress.length;
       const completionRate = totalLessons > 0 ? (completedLessons / totalLessons) * 100 : 0;
       
@@ -225,7 +225,7 @@ export function useAIInsights() {
       }
       
       // Time-based insights
-      const recentAttempts = attempts.filter(a => {
+      const recentAttempts = attempts.filter((a: any) => {
         const attemptDate = new Date(a.created_at);
         const weekAgo = new Date();
         weekAgo.setDate(weekAgo.getDate() - 7);
@@ -242,7 +242,7 @@ export function useAIInsights() {
       }
       
       // Study time insights
-      const totalWatchTime = progress.reduce((sum, p) => sum + (p.watch_time_seconds || 0), 0);
+      const totalWatchTime = progress.reduce((sum: number, p: any) => sum + (p.watch_time_seconds || 0), 0);
       const hoursWatched = totalWatchTime / 3600;
       
       if (hoursWatched >= 10) {
