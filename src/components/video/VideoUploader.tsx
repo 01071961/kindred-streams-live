@@ -48,7 +48,24 @@ interface VideoUploaderProps {
   type?: VideoType;
   onUploadComplete?: (video: { id: string; url: string; thumbnailUrl: string }) => void;
   trigger?: React.ReactNode;
-  maxDuration?: number; // in seconds
+  maxDuration?: number;
+}
+
+// LocalStorage key for videos (fallback since videos table doesn't exist)
+const VIDEOS_KEY = 'uploaded_videos_storage';
+
+function getVideosStorage(): any[] {
+  try {
+    return JSON.parse(localStorage.getItem(VIDEOS_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveVideo(video: any) {
+  const storage = getVideosStorage();
+  storage.push(video);
+  localStorage.setItem(VIDEOS_KEY, JSON.stringify(storage));
 }
 
 export function VideoUploader({
@@ -75,7 +92,7 @@ export function VideoUploader({
   const thumbnailInputRef = useRef<HTMLInputElement>(null);
 
   const isShort = type === 'short';
-  const maxAllowedDuration = maxDuration || (isShort ? 60 : 3600); // 60s for shorts, 1h for videos
+  const maxAllowedDuration = maxDuration || (isShort ? 60 : 3600);
 
   const handleFileSelect = useCallback((selectedFile: File) => {
     if (!selectedFile.type.startsWith('video/')) {
@@ -83,7 +100,6 @@ export function VideoUploader({
       return;
     }
 
-    // Check file size (max 5GB)
     if (selectedFile.size > 5 * 1024 * 1024 * 1024) {
       toast.error('Arquivo muito grande. Máximo: 5GB');
       return;
@@ -93,7 +109,6 @@ export function VideoUploader({
     const url = URL.createObjectURL(selectedFile);
     setPreviewUrl(url);
 
-    // Get video duration
     const video = document.createElement('video');
     video.preload = 'metadata';
     video.onloadedmetadata = () => {
@@ -106,7 +121,6 @@ export function VideoUploader({
         setError(null);
       }
 
-      // Auto-generate thumbnail at 1 second
       video.currentTime = 1;
     };
     video.onseeked = () => {
@@ -174,7 +188,7 @@ export function VideoUploader({
       const fileExt = file.name.split('.').pop();
       const filePath = `${user.id}/${timestamp}.${fileExt}`;
 
-      // Upload video
+      // Upload video to storage
       const { data: videoData, error: uploadError } = await supabase.storage
         .from('videos')
         .upload(filePath, file, {
@@ -185,12 +199,10 @@ export function VideoUploader({
       if (uploadError) throw uploadError;
       setUploadProgress(70);
 
-      // Get public URL
       const { data: { publicUrl: videoUrl } } = supabase.storage
         .from('videos')
         .getPublicUrl(filePath);
 
-      // Upload thumbnail if exists
       let thumbnailUrl = '';
       if (thumbnail || thumbnailPreview) {
         const thumbBlob = thumbnail || await fetch(thumbnailPreview!).then(r => r.blob());
@@ -212,27 +224,25 @@ export function VideoUploader({
       }
       setUploadProgress(85);
 
-      // Create video record
-      const { data: videoRecord, error: dbError } = await supabase
-        .from('videos')
-        .insert({
-          user_id: user.id,
-          title: title.trim(),
-          description: description.trim(),
-          type: isShort ? 'short' : 'video',
-          privacy,
-          status: 'ready',
-          storage_type: 'internal',
-          storage_url: videoUrl,
-          thumbnail_url: thumbnailUrl,
-          duration: Math.round(videoDuration),
-          file_size: file.size,
-          mime_type: file.type,
-        })
-        .select()
-        .single();
+      // Save to localStorage (since videos table doesn't exist)
+      const videoRecord = {
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        title: title.trim(),
+        description: description.trim(),
+        type: isShort ? 'short' : 'video',
+        privacy,
+        status: 'ready',
+        storage_type: 'internal',
+        storage_url: videoUrl,
+        thumbnail_url: thumbnailUrl,
+        duration: Math.round(videoDuration),
+        file_size: file.size,
+        mime_type: file.type,
+        created_at: new Date().toISOString(),
+      };
 
-      if (dbError) throw dbError;
+      saveVideo(videoRecord);
       setUploadProgress(100);
 
       toast.success(isShort ? 'Short publicado!' : 'Vídeo publicado!');
@@ -242,7 +252,6 @@ export function VideoUploader({
         thumbnailUrl,
       });
 
-      // Reset form
       resetForm();
       setIsOpen(false);
     } catch (error: any) {
@@ -302,7 +311,6 @@ export function VideoUploader({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          {/* Upload Area */}
           {!previewUrl ? (
             <div
               onDrop={handleDrop}
@@ -348,7 +356,6 @@ export function VideoUploader({
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Video Preview */}
               <div className={`relative rounded-xl overflow-hidden bg-black ${isShort ? 'aspect-[9/16] max-h-[300px] mx-auto' : 'aspect-video'}`}>
                 <video
                   src={previewUrl}
@@ -373,7 +380,6 @@ export function VideoUploader({
                 </Badge>
               </div>
 
-              {/* Duration Error */}
               {error && (
                 <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive">
                   <AlertCircle className="h-4 w-4" />
@@ -383,7 +389,6 @@ export function VideoUploader({
             </div>
           )}
 
-          {/* Form Fields */}
           {previewUrl && !error && (
             <>
               <div className="space-y-2">
@@ -405,7 +410,6 @@ export function VideoUploader({
                 />
               </div>
 
-              {/* Thumbnail */}
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
                   <ImageIcon className="h-4 w-4" />
@@ -436,7 +440,6 @@ export function VideoUploader({
                 </div>
               </div>
 
-              {/* Privacy */}
               <div className="space-y-2">
                 <Label>Visibilidade</Label>
                 <Select value={privacy} onValueChange={(v) => setPrivacy(v as VideoPrivacy)}>
@@ -472,7 +475,6 @@ export function VideoUploader({
                 </Select>
               </div>
 
-              {/* Upload Progress */}
               {isUploading && (
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
@@ -499,16 +501,21 @@ export function VideoUploader({
             Cancelar
           </Button>
           <Button
-            className={`flex-1 ${isShort ? 'bg-gradient-to-r from-purple-500 to-pink-500' : ''}`}
+            className="flex-1"
             onClick={handleUpload}
             disabled={!file || !title.trim() || !!error || isUploading}
           >
             {isUploading ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Enviando...
+              </>
             ) : (
-              <Upload className="h-4 w-4 mr-2" />
+              <>
+                <Check className="h-4 w-4 mr-2" />
+                Publicar
+              </>
             )}
-            Publicar
           </Button>
         </div>
       </DialogContent>

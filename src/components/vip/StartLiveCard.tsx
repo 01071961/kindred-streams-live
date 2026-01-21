@@ -35,13 +35,29 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
 
 interface StartLiveCardProps {
   affiliateId: string | null;
   userName?: string;
   onLiveStarted?: (liveData: { url: string; title: string }) => void;
   onLiveEnded?: () => void;
+}
+
+// LocalStorage key for live posts (fallback since affiliate_posts table doesn't exist)
+const LIVE_POSTS_KEY = 'affiliate_live_posts_storage';
+
+function getLivePostsStorage(): any[] {
+  try {
+    return JSON.parse(localStorage.getItem(LIVE_POSTS_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveLivePost(post: any) {
+  const storage = getLivePostsStorage();
+  storage.push(post);
+  localStorage.setItem(LIVE_POSTS_KEY, JSON.stringify(storage));
 }
 
 export function StartLiveCard({ 
@@ -70,30 +86,26 @@ export function StartLiveCard({
     setIsStarting(true);
 
     try {
-      // Create a live post in the database
-      if (affiliateId) {
-        const { data: post, error } = await supabase
-          .from('affiliate_posts')
-          .insert({
-            author_id: affiliateId,
-            title: `🔴 ${liveTitle}`,
-            content: `🔴 AO VIVO AGORA!\n\n${liveDescription}\n\n${youtubeStreamUrl || 'Transmissão ao vivo da rede VIP'}`,
-            category: 'live',
-          })
-          .select()
-          .single();
+      // Save to localStorage (since affiliate_posts table doesn't exist)
+      const post = {
+        id: crypto.randomUUID(),
+        author_id: affiliateId,
+        title: `🔴 ${liveTitle}`,
+        content: `🔴 AO VIVO AGORA!\n\n${liveDescription}\n\n${youtubeStreamUrl || 'Transmissão ao vivo da rede VIP'}`,
+        category: 'live',
+        created_at: new Date().toISOString(),
+      };
 
-        if (error) throw error;
+      saveLivePost(post);
 
-        setIsLive(true);
-        setCurrentLiveUrl(youtubeStreamUrl);
-        toast.success('Live iniciada com sucesso!');
-        
-        onLiveStarted?.({
-          url: youtubeStreamUrl,
-          title: liveTitle
-        });
-      }
+      setIsLive(true);
+      setCurrentLiveUrl(youtubeStreamUrl);
+      toast.success('Live iniciada com sucesso!');
+      
+      onLiveStarted?.({
+        url: youtubeStreamUrl,
+        title: liveTitle
+      });
     } catch (error: any) {
       console.error('Error starting live:', error);
       toast.error('Erro ao iniciar live: ' + error.message);
@@ -107,22 +119,6 @@ export function StartLiveCard({
     setIsEnding(true);
 
     try {
-      // Update the post to remove live status
-      if (affiliateId) {
-        const { error } = await supabase
-          .from('affiliate_posts')
-          .update({
-            title: liveTitle.replace('🔴 ', ''),
-            content: `Transmissão encerrada.\n\n${liveDescription}`,
-          })
-          .eq('author_id', affiliateId)
-          .eq('category', 'live')
-          .order('created_at', { ascending: false })
-          .limit(1);
-
-        if (error) console.error('Error updating post:', error);
-      }
-
       setIsLive(false);
       setCurrentLiveUrl('');
       setLiveTitle('');

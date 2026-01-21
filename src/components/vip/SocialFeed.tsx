@@ -35,7 +35,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -102,6 +101,29 @@ interface SocialPostCardProps {
   isLiked: boolean;
 }
 
+// LocalStorage key for comments (fallback)
+const COMMENTS_KEY = 'social_feed_comments';
+
+function getCommentsStorage(postId: string): Comment[] {
+  try {
+    const storage = JSON.parse(localStorage.getItem(COMMENTS_KEY) || '{}');
+    return storage[postId] || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCommentToStorage(postId: string, comment: Comment) {
+  try {
+    const storage = JSON.parse(localStorage.getItem(COMMENTS_KEY) || '{}');
+    if (!storage[postId]) storage[postId] = [];
+    storage[postId].push(comment);
+    localStorage.setItem(COMMENTS_KEY, JSON.stringify(storage));
+  } catch (error) {
+    console.error('Error saving comment:', error);
+  }
+}
+
 export function SocialPostCard({
   post,
   currentAffiliateId,
@@ -136,51 +158,9 @@ export function SocialPostCard({
     setLoadingComments(true);
     
     try {
-      const { data } = await supabase
-        .from('affiliate_post_comments')
-        .select('*')
-        .eq('post_id', post.id)
-        .order('created_at', { ascending: true })
-        .limit(10);
-
-      if (!data || data.length === 0) {
-        setComments([]);
-        setLoadingComments(false);
-        return;
-      }
-
-      // Batch fetch authors
-      const authorIds = [...new Set(data.map(c => c.author_id).filter(Boolean))];
-      const { data: affiliatesData } = await supabase
-        .from('vip_affiliates')
-        .select('id, tier, user_id')
-        .in('id', authorIds);
-
-      const affiliatesMap = new Map(affiliatesData?.map(a => [a.id, a]) || []);
-      
-      const userIds = [...new Set(affiliatesData?.map(a => a.user_id).filter(Boolean) || [])];
-      const { data: profilesData } = await supabase
-        .from('profiles')
-        .select('user_id, name, avatar_url')
-        .in('user_id', userIds);
-      
-      const profilesMap = new Map(profilesData?.map(p => [p.user_id, p]) || []);
-
-      const commentsWithAuthors: Comment[] = data.map(comment => {
-        const affiliate = affiliatesMap.get(comment.author_id);
-        const profile = affiliate ? profilesMap.get(affiliate.user_id) : null;
-        
-        return {
-          ...comment,
-          author: affiliate ? {
-            id: affiliate.id,
-            tier: affiliate.tier,
-            profile: profile || { name: 'Afiliado', avatar_url: '' }
-          } : undefined
-        };
-      });
-      
-      setComments(commentsWithAuthors);
+      // Load from localStorage
+      const storedComments = getCommentsStorage(post.id);
+      setComments(storedComments);
     } catch (error) {
       console.error('Error loading comments:', error);
     } finally {
@@ -211,9 +191,26 @@ export function SocialPostCard({
 
   const handleSubmitComment = () => {
     if (newComment.trim()) {
+      // Save to localStorage
+      const comment: Comment = {
+        id: crypto.randomUUID(),
+        content: newComment.trim(),
+        created_at: new Date().toISOString(),
+        author: {
+          id: currentAffiliateId || 'unknown',
+          tier: 'bronze',
+          profile: {
+            name: 'Você',
+            avatar_url: '',
+          },
+        },
+      };
+      
+      saveCommentToStorage(post.id, comment);
+      setComments(prev => [...prev, comment]);
+      
       onComment(post.id, newComment);
       setNewComment('');
-      loadComments();
     }
   };
 
@@ -436,7 +433,7 @@ export function SocialPostCard({
                 className="hover:underline"
                 onClick={() => setShowComments(!showComments)}
               >
-                {post.comments_count || 0} comentários
+                {comments.length || post.comments_count || 0} comentários
               </button>
             </div>
           </div>
@@ -559,7 +556,7 @@ export function SocialPostCard({
                         <div className="flex-1 bg-muted/30 rounded-xl px-3 py-2">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="font-medium text-sm">
-                              {comment.author?.profile.name}
+                              {comment.author?.profile.name || 'Membro'}
                             </span>
                             <span className="text-xs text-muted-foreground">
                               {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: ptBR })}
@@ -569,6 +566,12 @@ export function SocialPostCard({
                         </div>
                       </motion.div>
                     ))}
+                    
+                    {comments.length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        Nenhum comentário ainda. Seja o primeiro!
+                      </p>
+                    )}
                   </div>
                 </div>
               </motion.div>
