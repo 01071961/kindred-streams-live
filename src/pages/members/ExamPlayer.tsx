@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { extQuery } from '@/integrations/supabase/externalQueries';
 import { useAuth } from '@/auth';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -70,8 +70,7 @@ export default function ExamPlayer() {
   const { data: exam, isLoading: examLoading } = useQuery({
     queryKey: ['exam-detail', examId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('financial_exams')
+      const { data, error } = await extQuery('financial_exams')
         .select('*')
         .eq('id', examId)
         .single();
@@ -86,8 +85,7 @@ export default function ExamPlayer() {
     queryFn: async () => {
       if (!exam) return [];
       
-      const { data, error } = await supabase
-        .from('financial_questions')
+      const { data, error } = await extQuery('financial_questions')
         .select('*')
         .eq('certification', exam.certification as any)
         .eq('is_active', true)
@@ -95,7 +93,7 @@ export default function ExamPlayer() {
       
       if (error) throw error;
       
-      let processedQuestions = (data || []).map((q: any) => ({
+      let processedQuestions = ((data || []) as any[]).map((q: any) => ({
         ...q,
         options: Array.isArray(q.options) ? q.options : [],
       }));
@@ -124,8 +122,7 @@ export default function ExamPlayer() {
     queryFn: async () => {
       if (!attemptId || !user) return null;
       
-      const { data, error } = await supabase
-        .from('exam_attempts')
+      const { data, error } = await extQuery('exam_attempts')
         .select('*')
         .eq('id', attemptId)
         .single();
@@ -133,8 +130,8 @@ export default function ExamPlayer() {
       if (error) throw error;
       
       // Restore saved answers if any
-      if (data.answers && typeof data.answers === 'object' && !Array.isArray(data.answers)) {
-        setAnswers(data.answers as unknown as Record<string, Answer>);
+      if ((data as any).answers && typeof (data as any).answers === 'object' && !Array.isArray((data as any).answers)) {
+        setAnswers((data as any).answers as unknown as Record<string, Answer>);
       }
       
       return data;
@@ -147,8 +144,7 @@ export default function ExamPlayer() {
     mutationFn: async (currentAnswers: Record<string, Answer>) => {
       if (!attemptId) return;
       
-      const { error } = await supabase
-        .from('exam_attempts')
+      const { error } = await extQuery('exam_attempts')
         .update({ 
           answers: currentAnswers as unknown as any,
           updated_at: new Date().toISOString(),
@@ -200,8 +196,7 @@ export default function ExamPlayer() {
       const passed = score >= exam.passing_score;
       
       // Update attempt
-      const { error } = await supabase
-        .from('exam_attempts')
+      const { error } = await extQuery('exam_attempts')
         .update({
           answers: finalAnswers as unknown as any,
           status: 'completed' as const,
@@ -234,10 +229,10 @@ export default function ExamPlayer() {
 
   // Timer effect
   useEffect(() => {
-    if (exam && timeRemaining === null && attempt?.status === 'in_progress') {
+    if (exam && timeRemaining === null && (attempt as any)?.status === 'in_progress') {
       // Calculate remaining time
-      if (attempt.started_at) {
-        const elapsed = Math.floor((Date.now() - new Date(attempt.started_at).getTime()) / 1000);
+      if ((attempt as any).started_at) {
+        const elapsed = Math.floor((Date.now() - new Date((attempt as any).started_at).getTime()) / 1000);
         const total = exam.time_limit_minutes * 60;
         setTimeRemaining(Math.max(0, total - elapsed));
       } else {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { supabase } from '@/integrations/supabase/client';
+import { extQuery } from '@/integrations/supabase/externalQueries';
 import { useAuth } from '@/auth';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -61,17 +61,15 @@ const Certificates = () => {
       setLoading(true);
       
       // Fetch issued certificates
-      const { data: certsData } = await supabase
-        .from('course_certificates')
+      const { data: certsData } = await extQuery('course_certificates')
         .select('*')
         .eq('user_id', user?.id)
         .order('issued_at', { ascending: false });
 
-      setCertificates(certsData || []);
+      setCertificates((certsData || []) as Certificate[]);
 
       // Fetch enrollments with 100% progress that don't have certificates
-      const { data: enrollmentsData } = await supabase
-        .from('enrollments')
+      const { data: enrollmentsData } = await extQuery('enrollments')
         .select(`
           id,
           product_id,
@@ -82,26 +80,25 @@ const Certificates = () => {
         .eq('status', 'active')
         .gte('progress_percent', 100);
 
-      const certificateProductIds = new Set((certsData || []).map(c => c.product_id));
+      const certificateProductIds = new Set(((certsData || []) as any[]).map((c: any) => c.product_id));
       
       // Get exam attempts for each eligible course
       const eligible: EligibleCourse[] = [];
       
-      for (const enrollment of (enrollmentsData || [])) {
+      for (const enrollment of ((enrollmentsData || []) as any[])) {
         if (certificateProductIds.has(enrollment.product_id)) continue;
         
         const product = Array.isArray(enrollment.product) ? enrollment.product[0] : enrollment.product;
         
         // Get exam attempts for this user
-        const { data: attempts } = await supabase
-          .from('exam_attempts')
+        const { data: attempts } = await extQuery('exam_attempts')
           .select('score, passed')
           .eq('user_id', user?.id)
           .eq('status', 'completed');
         
-        const passedAttempts = (attempts || []).filter(a => a.passed);
+        const passedAttempts = ((attempts || []) as any[]).filter((a: any) => a.passed);
         const avgScore = passedAttempts.length > 0
-          ? Math.round(passedAttempts.reduce((sum, a) => sum + (a.score || 0), 0) / passedAttempts.length)
+          ? Math.round(passedAttempts.reduce((sum: number, a: any) => sum + (a.score || 0), 0) / passedAttempts.length)
           : 100;
         
         eligible.push({

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { extQuery } from '@/integrations/supabase/externalQueries';
 import { useAuth } from '@/auth';
 import { useRealtimeProfile } from '@/hooks/useRealtimeProfile';
 import { useRealtimeTier } from '@/hooks/useRealtimeTier';
@@ -76,21 +76,19 @@ const MemberDashboard = () => {
     queryFn: async () => {
       if (!user?.id) return null;
       
-      const { data: attempts } = await supabase
-        .from('exam_attempts')
+      const { data: attempts } = await extQuery('exam_attempts')
         .select('id, score, passed, status')
         .eq('user_id', user.id)
         .eq('status', 'completed');
       
-      const { data: certProgress } = await supabase
-        .from('certification_progress')
+      const { data: certProgress } = await extQuery('certification_progress')
         .select('*')
         .eq('user_id', user.id);
       
       return {
-        totalAttempts: attempts?.length || 0,
-        passedExams: attempts?.filter(a => a.passed)?.length || 0,
-        avgScore: attempts?.length ? Math.round(attempts.reduce((acc, a) => acc + (a.score || 0), 0) / attempts.length) : 0,
+        totalAttempts: (attempts as any[])?.length || 0,
+        passedExams: (attempts as any[])?.filter((a: any) => a.passed)?.length || 0,
+        avgScore: (attempts as any[])?.length ? Math.round((attempts as any[]).reduce((acc: number, a: any) => acc + (a.score || 0), 0) / (attempts as any[]).length) : 0,
         certifications: certProgress || []
       };
     },
@@ -114,8 +112,7 @@ const MemberDashboard = () => {
 
   const fetchEnrollments = async () => {
     try {
-      const { data, error } = await supabase
-        .from('enrollments')
+      const { data, error } = await extQuery('enrollments')
         .select(`
           id,
           product_id,
@@ -131,7 +128,7 @@ const MemberDashboard = () => {
 
       if (error) throw error;
 
-      const enrollmentData = (data || []).map(e => ({
+      const enrollmentData = ((data || []) as any[]).map((e: any) => ({
         ...e,
         product: Array.isArray(e.product) ? e.product[0] : e.product
       })) as Enrollment[];

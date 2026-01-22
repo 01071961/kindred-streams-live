@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { extQuery } from '@/integrations/supabase/externalQueries';
 import { useAuth } from '@/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -78,8 +78,7 @@ const CertificateView = () => {
       setLoading(true);
 
       // Fetch course
-      const { data: courseData, error: courseError } = await supabase
-        .from('products')
+      const { data: courseData, error: courseError } = await extQuery('products')
         .select('name, description')
         .eq('id', productId)
         .maybeSingle();
@@ -87,11 +86,10 @@ const CertificateView = () => {
       if (courseError) {
         console.error('Error fetching course:', courseError);
       }
-      setCourse(courseData);
+      setCourse(courseData as Course | null);
 
       // Fetch profile
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
+      const { data: profileData, error: profileError } = await extQuery('profiles')
         .select('name, email')
         .eq('user_id', user?.id)
         .maybeSingle();
@@ -99,13 +97,13 @@ const CertificateView = () => {
       if (profileError || !profileData) {
         setProfile({ name: user?.user_metadata?.name || null, email: user?.email || '' });
       } else {
-        setProfile(profileData);
+        setProfile(profileData as Profile);
       }
 
       // Check for existing certificate
       const existingCert = await getCertificateByProduct(user!.id, productId!);
       if (existingCert) {
-        setCertificate(existingCert as CertificateData);
+        setCertificate(existingCert as unknown as CertificateData);
         return;
       }
 
@@ -114,7 +112,7 @@ const CertificateView = () => {
       setEligibility(eligibilityResult);
 
       // Set default student name
-      setStudentName(profileData?.name || user?.user_metadata?.name || '');
+      setStudentName((profileData as any)?.name || user?.user_metadata?.name || '');
 
     } catch (error) {
       console.error('Error fetching certificate data:', error);
@@ -157,7 +155,7 @@ const CertificateView = () => {
         // Refetch certificate
         const cert = await getCertificateByProduct(user!.id, productId!);
         if (cert) {
-          setCertificate(cert as CertificateData);
+          setCertificate(cert as unknown as CertificateData);
         }
       }
     } catch (error) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { extQuery } from '@/integrations/supabase/externalQueries';
 import { useAuth } from '@/auth';
 import { useRealtimeProfile } from '@/hooks/useRealtimeProfile';
 import { Button } from '@/components/ui/button';
@@ -128,31 +128,28 @@ const MemberProfile = () => {
 
     try {
       // Load experiences
-      const { data: expData } = await supabase
-        .from('profile_experiences')
+      const { data: expData } = await extQuery('profile_experiences')
         .select('*')
         .eq('user_id', user.id)
         .order('start_date', { ascending: false });
       
-      if (expData) setExperiences(expData);
+      if (expData) setExperiences(expData as Experience[]);
 
       // Load education
-      const { data: eduData } = await supabase
-        .from('profile_education')
+      const { data: eduData } = await extQuery('profile_education')
         .select('*')
         .eq('user_id', user.id)
         .order('start_date', { ascending: false });
       
-      if (eduData) setEducation(eduData);
+      if (eduData) setEducation(eduData as Education[]);
 
       // Load skills
-      const { data: skillsData } = await supabase
-        .from('profile_skills')
+      const { data: skillsData } = await extQuery('profile_skills')
         .select('*')
         .eq('user_id', user.id)
         .order('endorsements_count', { ascending: false });
       
-      if (skillsData) setSkills(skillsData);
+      if (skillsData) setSkills(skillsData as Skill[]);
     } catch (error) {
       console.error('Error loading extended profile:', error);
     }
