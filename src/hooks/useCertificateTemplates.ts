@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { toast } from 'sonner';
 
 export interface CertificateTemplate {
@@ -45,14 +45,14 @@ export function useCertificateTemplates() {
   const { data: certificateTemplates, isLoading: loadingCertificates } = useQuery({
     queryKey: ['certificate-templates'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await externalSupabase
         .from('certificate_templates')
         .select('*')
         .eq('is_active', true)
         .order('is_default', { ascending: false });
       
       if (error) throw error;
-      return data as CertificateTemplate[];
+      return (data || []) as unknown as CertificateTemplate[];
     }
   });
 
@@ -60,14 +60,14 @@ export function useCertificateTemplates() {
   const { data: transcriptTemplates, isLoading: loadingTranscripts } = useQuery({
     queryKey: ['transcript-templates'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await externalSupabase
         .from('transcript_templates')
         .select('*')
         .eq('is_active', true)
         .order('is_default', { ascending: false });
       
       if (error) throw error;
-      return data as TranscriptTemplate[];
+      return (data || []) as unknown as TranscriptTemplate[];
     }
   });
 
@@ -78,7 +78,7 @@ export function useCertificateTemplates() {
   // Create certificate template
   const createCertificateTemplate = useMutation({
     mutationFn: async (data: Partial<CertificateTemplate>) => {
-      const { error } = await supabase
+      const { error } = await externalSupabase
         .from('certificate_templates')
         .insert({
           name: data.name || '',
@@ -103,7 +103,7 @@ export function useCertificateTemplates() {
   // Update certificate template
   const updateCertificateTemplate = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<CertificateTemplate> }) => {
-      const { error } = await supabase
+      const { error } = await externalSupabase
         .from('certificate_templates')
         .update({ ...data, updated_at: new Date().toISOString() })
         .eq('id', id);
@@ -123,13 +123,13 @@ export function useCertificateTemplates() {
   const setDefaultCertificateTemplate = useMutation({
     mutationFn: async (id: string) => {
       // First, unset all defaults
-      await supabase
+      await externalSupabase
         .from('certificate_templates')
         .update({ is_default: false })
         .neq('id', id);
       
       // Then set the new default
-      const { error } = await supabase
+      const { error } = await externalSupabase
         .from('certificate_templates')
         .update({ is_default: true })
         .eq('id', id);
@@ -145,7 +145,7 @@ export function useCertificateTemplates() {
   // Create transcript template
   const createTranscriptTemplate = useMutation({
     mutationFn: async (data: Partial<TranscriptTemplate>) => {
-      const { error } = await supabase
+      const { error } = await externalSupabase
         .from('transcript_templates')
         .insert({
           name: data.name || '',
@@ -165,7 +165,7 @@ export function useCertificateTemplates() {
   // Update transcript template
   const updateTranscriptTemplate = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<TranscriptTemplate> }) => {
-      const { error } = await supabase
+      const { error } = await externalSupabase
         .from('transcript_templates')
         .update({ ...data, updated_at: new Date().toISOString() })
         .eq('id', id);
@@ -180,12 +180,12 @@ export function useCertificateTemplates() {
   // Set default transcript template
   const setDefaultTranscriptTemplate = useMutation({
     mutationFn: async (id: string) => {
-      await supabase
+      await externalSupabase
         .from('transcript_templates')
         .update({ is_default: false })
         .neq('id', id);
       
-      const { error } = await supabase
+      const { error } = await externalSupabase
         .from('transcript_templates')
         .update({ is_default: true })
         .eq('id', id);

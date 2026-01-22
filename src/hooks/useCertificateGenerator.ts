@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 import { toast } from 'sonner';
 import { generateCertificatePDF } from '@/lib/pdf/certificatePdfGenerator';
@@ -41,6 +41,12 @@ interface CompanySettings {
   certificate_template_id: string | null;
 }
 
+interface CourseCertificate {
+  id: string;
+  certificate_number: string;
+  validation_code: string;
+}
+
 export function useCertificateGenerator() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -50,21 +56,23 @@ export function useCertificateGenerator() {
       if (!user?.id) throw new Error('Usuário não autenticado');
 
       // 1. Fetch company settings
-      const { data: company } = await supabase
+      const { data: companyData } = await externalSupabase
         .from('company_settings')
         .select('*')
         .limit(1)
         .maybeSingle();
 
+      const company = companyData as CompanySettings | null;
+
       // 2. Fetch template if specified in company settings
       let template: CertificateTemplate | null = null;
       if (company?.certificate_template_id) {
-        const { data: templateData } = await supabase
+        const { data: templateData } = await externalSupabase
           .from('certificate_templates')
           .select('*')
           .eq('id', company.certificate_template_id)
           .single();
-        template = templateData as CertificateTemplate;
+        template = templateData as CertificateTemplate | null;
       }
 
       // 3. Generate certificate number and validation code
@@ -72,12 +80,14 @@ export function useCertificateGenerator() {
       const validationCode = Math.random().toString(36).substring(2, 10).toUpperCase();
 
       // 4. Check if course_certificate already exists
-      const { data: existingCert } = await supabase
+      const { data: existingCertData } = await externalSupabase
         .from('course_certificates')
         .select('id, certificate_number, validation_code')
         .eq('user_id', user.id)
         .eq('product_id', params.productId)
         .maybeSingle();
+
+      const existingCert = existingCertData as CourseCertificate | null;
 
       let certificateId: string;
       let certNumber: string;
@@ -89,7 +99,7 @@ export function useCertificateGenerator() {
         valCode = existingCert.validation_code;
       } else {
         // Create course_certificate record
-        const { data: newCert, error: certError } = await supabase
+        const { data: newCertData, error: certError } = await externalSupabase
           .from('course_certificates')
           .insert({
             user_id: user.id,
@@ -106,6 +116,7 @@ export function useCertificateGenerator() {
           .single();
 
         if (certError) throw certError;
+        const newCert = newCertData as any;
         certificateId = newCert.id;
         certNumber = certificateNumber;
         valCode = validationCode;
@@ -129,7 +140,7 @@ export function useCertificateGenerator() {
 
       // 6. Upload PDF to storage
       const fileName = `certificates/${user.id}/${params.productId}_${Date.now()}.pdf`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { data: uploadData, error: uploadError } = await externalSupabase.storage
         .from('product-content')
         .upload(fileName, pdfBlob, { 
           contentType: 'application/pdf',
@@ -142,12 +153,12 @@ export function useCertificateGenerator() {
       }
 
       // 7. Get public URL
-      const { data: urlData } = supabase.storage
+      const { data: urlData } = externalSupabase.storage
         .from('product-content')
         .getPublicUrl(fileName);
 
       // 8. Update generated_certificates table
-      await supabase
+      await externalSupabase
         .from('generated_certificates')
         .upsert({
           user_id: user.id,
@@ -199,7 +210,7 @@ export function useCertificateGenerator() {
   const checkPendingCertificate = async (productId: string) => {
     if (!user?.id) return null;
 
-    const { data } = await supabase
+    const { data } = await externalSupabase
       .from('generated_certificates')
       .select('*')
       .eq('user_id', user.id)

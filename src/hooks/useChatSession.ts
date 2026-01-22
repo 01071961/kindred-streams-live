@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase } from "@/integrations/supabase/externalClient";
 
 export interface ChatSession {
   conversationId: string;
@@ -15,6 +15,12 @@ export interface ChatSession {
 
 const STORAGE_KEY = "sky_chat_session";
 const SESSION_EXPIRY_HOURS = 24; // Sessions expire after 24 hours
+
+interface ChatConversation {
+  id: string;
+  status: string;
+  form_completed: boolean | null;
+}
 
 export const useChatSession = () => {
   const [savedSession, setSavedSession] = useState<ChatSession | null>(null);
@@ -44,11 +50,13 @@ export const useChatSession = () => {
         }
 
         // Verify session still exists in database
-        const { data: conversation } = await supabase
+        const { data: conversationData } = await externalSupabase
           .from("chat_conversations")
           .select("id, status, form_completed")
           .eq("id", session.conversationId)
           .single();
+
+        const conversation = conversationData as ChatConversation | null;
 
         if (conversation) {
           // Update status from DB

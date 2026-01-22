@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 import { toast } from 'sonner';
 
@@ -23,6 +23,27 @@ interface ExamResult {
   completedAt: string;
 }
 
+interface Enrollment {
+  id: string;
+  product_id: string;
+  progress_percent: number;
+  product: { id: string; name: string } | null;
+}
+
+interface ExamAttempt {
+  id: string;
+  exam_id: string;
+  score: number | null;
+  passed: boolean;
+  completed_at: string;
+  exam: { title: string } | null;
+}
+
+interface Certificate {
+  id: string;
+  product_id: string;
+}
+
 export function useCertificationSystem() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -35,7 +56,7 @@ export function useCertificationSystem() {
     setLoading(true);
     try {
       // Fetch enrollments with products
-      const { data: enrollments } = await supabase
+      const { data: enrollmentsData } = await externalSupabase
         .from('enrollments')
         .select(`
           id,
@@ -46,8 +67,10 @@ export function useCertificationSystem() {
         .eq('user_id', user.id)
         .eq('status', 'active');
 
+      const enrollments = (enrollmentsData || []) as unknown as Enrollment[];
+
       // Fetch exam attempts
-      const { data: attempts } = await supabase
+      const { data: attemptsData } = await externalSupabase
         .from('exam_attempts')
         .select(`
           id,
@@ -61,22 +84,25 @@ export function useCertificationSystem() {
         .eq('status', 'completed')
         .order('completed_at', { ascending: false });
 
+      const attempts = (attemptsData || []) as unknown as ExamAttempt[];
+
       // Fetch existing certificates
-      const { data: certificates } = await supabase
+      const { data: certificatesData } = await externalSupabase
         .from('course_certificates')
         .select('id, product_id')
         .eq('user_id', user.id);
 
-      const certMap = new Map(certificates?.map(c => [c.product_id, c.id]) || []);
+      const certificates = (certificatesData || []) as unknown as Certificate[];
+      const certMap = new Map(certificates.map(c => [c.product_id, c.id]));
 
       // Process enrollments
-      const progressData: CertificationProgress[] = (enrollments || []).map(enrollment => {
+      const progressData: CertificationProgress[] = enrollments.map(enrollment => {
         const product = Array.isArray(enrollment.product) 
           ? enrollment.product[0] 
           : enrollment.product;
         
         // Filter exam attempts for this product's related exams
-        const relatedAttempts = attempts?.filter(a => a.passed) || [];
+        const relatedAttempts = attempts.filter(a => a.passed);
         const avgScore = relatedAttempts.length > 0
           ? relatedAttempts.reduce((sum, a) => sum + (a.score || 0), 0) / relatedAttempts.length
           : 0;
@@ -95,9 +121,9 @@ export function useCertificationSystem() {
       });
 
       // Process exam results
-      const resultsData: ExamResult[] = (attempts || []).map(attempt => ({
+      const resultsData: ExamResult[] = attempts.map(attempt => ({
         examId: attempt.exam_id,
-        examTitle: (attempt.exam as any)?.title || 'Exame',
+        examTitle: attempt.exam?.title || 'Exame',
         score: attempt.score || 0,
         passed: attempt.passed || false,
         completedAt: attempt.completed_at || ''
@@ -121,12 +147,14 @@ export function useCertificationSystem() {
 
     try {
       // Check if already has certificate
-      const { data: existing } = await supabase
+      const { data: existingData } = await externalSupabase
         .from('course_certificates')
         .select('id')
         .eq('user_id', user.id)
         .eq('product_id', productId)
         .maybeSingle();
+
+      const existing = existingData as { id: string } | null;
 
       if (existing) {
         toast.info('Certificado já foi emitido para este curso');
@@ -134,37 +162,43 @@ export function useCertificationSystem() {
       }
 
       // Get product info
-      const { data: product } = await supabase
+      const { data: productData } = await externalSupabase
         .from('products')
         .select('name')
         .eq('id', productId)
         .single();
 
+      const product = productData as { name: string } | null;
+
       // Get profile name
-      const { data: profile } = await supabase
+      const { data: profileData } = await externalSupabase
         .from('profiles')
-        .select('name')
+        .select('name, display_name')
         .eq('user_id', user.id)
         .single();
 
+      const profile = profileData as { name?: string; display_name?: string } | null;
+
       // Calculate course hours from lessons
-      const { data: lessons } = await supabase
+      const { data: lessonsData } = await externalSupabase
         .from('product_lessons')
         .select('video_duration, module:product_modules!inner(product_id)')
         .eq('module.product_id', productId);
 
-      const totalMinutes = (lessons || []).reduce((acc, l) => acc + ((l.video_duration || 0) / 60), 0);
+      const lessons = (lessonsData || []) as unknown as Array<{ video_duration: number | null }>;
+      const totalMinutes = lessons.reduce((acc, l) => acc + ((l.video_duration || 0) / 60), 0);
       const courseHours = Math.max(1, Math.round(totalMinutes / 60));
 
       // Get average exam score
-      const { data: attempts } = await supabase
+      const { data: attemptsData } = await externalSupabase
         .from('exam_attempts')
         .select('score')
         .eq('user_id', user.id)
         .eq('passed', true);
 
-      const avgScore = attempts && attempts.length > 0
-        ? Math.round(attempts.reduce((sum, a) => sum + (a.score || 0), 0) / attempts.length)
+      const attemptsArr = (attemptsData || []) as unknown as Array<{ score: number | null }>;
+      const avgScore = attemptsArr.length > 0
+        ? Math.round(attemptsArr.reduce((sum, a) => sum + (a.score || 0), 0) / attemptsArr.length)
         : 100;
 
       // Generate codes
@@ -172,12 +206,12 @@ export function useCertificationSystem() {
       const valCode = Math.random().toString(36).substring(2, 10).toUpperCase();
 
       // Create certificate
-      const { data: newCert, error } = await supabase
+      const { data: newCertData, error } = await externalSupabase
         .from('course_certificates')
         .insert({
           user_id: user.id,
           product_id: productId,
-          student_name: studentName || profile?.name || user.email?.split('@')[0] || 'Aluno',
+          student_name: studentName || profile?.name || profile?.display_name || user.email?.split('@')[0] || 'Aluno',
           course_name: product?.name || 'Curso',
           course_hours: courseHours,
           final_score: avgScore,
@@ -189,6 +223,8 @@ export function useCertificationSystem() {
         .single();
 
       if (error) throw error;
+      
+      const newCert = newCertData as { id: string };
 
       toast.success('🎓 Certificado gerado com sucesso!');
       fetchProgress();

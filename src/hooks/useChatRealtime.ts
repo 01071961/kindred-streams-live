@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase } from "@/integrations/supabase/externalClient";
 
 interface UseChatRealtimeOptions {
   conversationId: string | null;
@@ -75,7 +75,7 @@ export const useChatRealtime = ({
   onTypingChange,
   onConversationUpdate,
 }: UseChatRealtimeOptions) => {
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const channelRef = useRef<ReturnType<typeof externalSupabase.channel> | null>(null);
   const isSubscribed = useRef(false);
   
   // Use refs to avoid stale closures and prevent re-subscriptions
@@ -105,13 +105,13 @@ export const useChatRealtime = ({
     
     // Clean up existing channel first
     if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
+      externalSupabase.removeChannel(channelRef.current);
       channelRef.current = null;
     }
 
     isSubscribed.current = true;
 
-    channelRef.current = supabase
+    channelRef.current = externalSupabase
       .channel(channelName)
       .on(
         "postgres_changes",
@@ -177,7 +177,7 @@ export const useChatRealtime = ({
       console.log("[ChatRealtime] Cleanup:", conversationId);
       isSubscribed.current = false;
       if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
+        externalSupabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
     };
@@ -189,9 +189,9 @@ export const useChatRealtime = ({
     const field = isAdmin ? "is_typing_admin" : "is_typing_visitor";
     
     try {
-      await supabase
+      await externalSupabase
         .from("chat_conversations")
-        .update({ [field]: isTyping, last_activity_at: new Date().toISOString() })
+        .update({ [field]: isTyping, last_activity_at: new Date().toISOString() } as any)
         .eq("id", conversationId);
     } catch (error) {
       console.warn("[ChatRealtime] Typing error:", error);

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 import { useToast } from '@/hooks/use-toast';
 
@@ -46,6 +46,12 @@ interface CommunityStats {
   activeToday: number;
 }
 
+interface ProfileInfo {
+  user_id: string;
+  name: string;
+  avatar_url: string | null;
+}
+
 export const useCommunity = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -64,7 +70,7 @@ export const useCommunity = () => {
     try {
       const orderColumn = sortBy === 'popular' ? 'likes_count' : 'created_at';
       
-      const { data: postsData, error } = await supabase
+      const { data: postsData, error } = await externalSupabase
         .from('community_posts')
         .select(`
           *,
@@ -75,30 +81,34 @@ export const useCommunity = () => {
 
       if (error) throw error;
 
+      const posts = (postsData || []) as any[];
+
       // Get author info for each post
-      const userIds = [...new Set(postsData?.map(p => p.user_id) || [])];
-      const { data: profiles } = await supabase
+      const userIds = [...new Set(posts.map(p => p.user_id))];
+      const { data: profilesData } = await externalSupabase
         .from('profiles')
-        .select('user_id, name, avatar_url')
+        .select('user_id, name, display_name, avatar_url')
         .in('user_id', userIds);
 
-      const profileMap = new Map(profiles?.map(p => [p.user_id, p]));
+      const profiles = (profilesData || []) as any[];
+      const profileMap = new Map(profiles.map(p => [p.user_id, { name: p.name || p.display_name || 'Usuário', avatar_url: p.avatar_url }]));
 
       // Check which posts user has liked
-      const { data: userLikes } = await supabase
+      const { data: userLikesData } = await externalSupabase
         .from('community_likes')
         .select('post_id')
         .eq('user_id', user.id)
         .not('post_id', 'is', null);
 
-      const likedPostIds = new Set(userLikes?.map(l => l.post_id));
+      const userLikes = (userLikesData || []) as any[];
+      const likedPostIds = new Set(userLikes.map(l => l.post_id));
 
-      const formattedPosts = postsData?.map(post => ({
+      const formattedPosts: CommunityPost[] = posts.map(post => ({
         ...post,
         author: profileMap.get(post.user_id) || { name: 'Usuário', avatar_url: null },
         course: Array.isArray(post.course) ? post.course[0] : post.course,
         hasLiked: likedPostIds.has(post.id)
-      })) || [];
+      }));
 
       setPosts(formattedPosts);
     } catch (error) {
@@ -111,19 +121,19 @@ export const useCommunity = () => {
   const fetchStats = useCallback(async () => {
     try {
       // Total members (profiles with enrollments)
-      const { count: totalMembers } = await supabase
+      const { count: totalMembers } = await externalSupabase
         .from('enrollments')
         .select('user_id', { count: 'exact', head: true });
 
       // Total posts
-      const { count: totalPosts } = await supabase
+      const { count: totalPosts } = await externalSupabase
         .from('community_posts')
         .select('*', { count: 'exact', head: true });
 
       // Active today
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const { count: activeToday } = await supabase
+      const { count: activeToday } = await externalSupabase
         .from('lesson_progress')
         .select('user_id', { count: 'exact', head: true })
         .gte('updated_at', today.toISOString());
@@ -149,14 +159,14 @@ export const useCommunity = () => {
     }
 
     try {
-      const { error } = await supabase
+      const { error } = await externalSupabase
         .from('community_posts')
         .insert({
           user_id: user.id,
           title,
           content,
           course_id: courseId || null
-        });
+        } as any);
 
       if (error) throw error;
 
@@ -187,19 +197,19 @@ export const useCommunity = () => {
     try {
       if (post.hasLiked) {
         // Unlike
-        await supabase
+        await externalSupabase
           .from('community_likes')
           .delete()
           .eq('user_id', user.id)
           .eq('post_id', postId);
       } else {
         // Like
-        await supabase
+        await externalSupabase
           .from('community_likes')
           .insert({
             user_id: user.id,
             post_id: postId
-          });
+          } as any);
       }
 
       // Update local state optimistically
@@ -221,7 +231,7 @@ export const useCommunity = () => {
     if (!user?.id) return [];
 
     try {
-      const { data, error } = await supabase
+      const { data, error } = await externalSupabase
         .from('community_replies')
         .select('*')
         .eq('post_id', postId)
@@ -229,29 +239,33 @@ export const useCommunity = () => {
 
       if (error) throw error;
 
+      const replies = (data || []) as any[];
+
       // Get author info
-      const userIds = [...new Set(data?.map(r => r.user_id) || [])];
-      const { data: profiles } = await supabase
+      const userIds = [...new Set(replies.map(r => r.user_id))];
+      const { data: profilesData } = await externalSupabase
         .from('profiles')
-        .select('user_id, name, avatar_url')
+        .select('user_id, name, display_name, avatar_url')
         .in('user_id', userIds);
 
-      const profileMap = new Map(profiles?.map(p => [p.user_id, p]));
+      const profiles = (profilesData || []) as any[];
+      const profileMap = new Map(profiles.map(p => [p.user_id, { name: p.name || p.display_name || 'Usuário', avatar_url: p.avatar_url }]));
 
       // Check liked replies
-      const { data: userLikes } = await supabase
+      const { data: userLikesData } = await externalSupabase
         .from('community_likes')
         .select('reply_id')
         .eq('user_id', user.id)
         .not('reply_id', 'is', null);
 
-      const likedReplyIds = new Set(userLikes?.map(l => l.reply_id));
+      const userLikes = (userLikesData || []) as any[];
+      const likedReplyIds = new Set(userLikes.map(l => l.reply_id));
 
-      return data?.map(reply => ({
+      return replies.map(reply => ({
         ...reply,
         author: profileMap.get(reply.user_id) || { name: 'Usuário', avatar_url: null },
         hasLiked: likedReplyIds.has(reply.id)
-      })) || [];
+      })) as CommunityReply[];
     } catch (error) {
       console.error('Error fetching replies:', error);
       return [];
@@ -262,13 +276,13 @@ export const useCommunity = () => {
     if (!user?.id) return false;
 
     try {
-      const { error } = await supabase
+      const { error } = await externalSupabase
         .from('community_replies')
         .insert({
           post_id: postId,
           user_id: user.id,
           content
-        });
+        } as any);
 
       if (error) throw error;
 
@@ -296,7 +310,7 @@ export const useCommunity = () => {
 
   // Realtime subscription
   useEffect(() => {
-    const channel = supabase
+    const channel = externalSupabase
       .channel('community-updates')
       .on(
         'postgres_changes',
@@ -313,7 +327,7 @@ export const useCommunity = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      externalSupabase.removeChannel(channel);
     };
   }, [fetchPosts, fetchStats]);
 

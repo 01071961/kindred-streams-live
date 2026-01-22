@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 import { toast } from 'sonner';
 
@@ -56,7 +56,7 @@ export function useLinkedInSync() {
   // Sync with retry logic
   const syncWithRetry = async (username: string, attempt: number = 0): Promise<any> => {
     try {
-      const { data, error } = await supabase.functions.invoke('firecrawl-scrape', {
+      const { data, error } = await externalSupabase.functions.invoke('firecrawl-scrape', {
         body: {
           url: `https://www.linkedin.com/in/${username}`,
           formats: ['markdown', 'extract'],
@@ -212,7 +212,7 @@ export function useLinkedInSync() {
     if (!user?.id) return;
 
     // Update main profile with additional LinkedIn fields
-    await supabase
+    await externalSupabase
       .from('profiles')
       .update({
         name: data.name || undefined,
@@ -222,34 +222,36 @@ export function useLinkedInSync() {
         linkedin_synced_at: new Date().toISOString(),
         linkedin_profile_data: data as any,
         updated_at: new Date().toISOString()
-      })
+      } as any)
       .eq('user_id', user.id);
 
     // Also update VIP affiliate if exists
-    const { data: affiliate } = await supabase
+    const { data: affiliateData } = await externalSupabase
       .from('vip_affiliates')
       .select('id')
       .eq('user_id', user.id)
       .maybeSingle();
+
+    const affiliate = affiliateData as { id: string } | null;
     
     if (affiliate) {
-      await supabase
+      await externalSupabase
         .from('vip_affiliates')
         .update({
           name: data.name || undefined,
           updated_at: new Date().toISOString()
-        })
+        } as any)
         .eq('id', affiliate.id);
     }
 
     // Clear existing experiences and add new ones from LinkedIn
-    await supabase
+    await externalSupabase
       .from('profile_experiences')
       .delete()
       .eq('user_id', user.id);
 
     for (const exp of data.experiences) {
-      await supabase
+      await externalSupabase
         .from('profile_experiences')
         .insert({
           user_id: user.id,
@@ -264,13 +266,13 @@ export function useLinkedInSync() {
     }
 
     // Clear existing education and add new ones from LinkedIn
-    await supabase
+    await externalSupabase
       .from('profile_education')
       .delete()
       .eq('user_id', user.id);
 
     for (const edu of data.education) {
-      await supabase
+      await externalSupabase
         .from('profile_education')
         .insert({
           user_id: user.id,
@@ -284,13 +286,13 @@ export function useLinkedInSync() {
     }
 
     // Save skills from LinkedIn
-    await supabase
+    await externalSupabase
       .from('profile_skills')
       .delete()
       .eq('user_id', user.id);
 
     for (const skill of data.skills.slice(0, 20)) {
-      await supabase
+      await externalSupabase
         .from('profile_skills')
         .insert({
           user_id: user.id,
@@ -300,7 +302,7 @@ export function useLinkedInSync() {
     }
 
     // Log the sync
-    await supabase
+    await externalSupabase
       .from('profile_edit_history')
       .insert({
         user_id: user.id,
@@ -311,7 +313,7 @@ export function useLinkedInSync() {
           education: data.education.length,
           skills: data.skills.length
         })
-      });
+      } as any);
   };
 
   return {
