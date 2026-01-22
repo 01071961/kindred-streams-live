@@ -6,8 +6,23 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase as supabase } from '@/integrations/supabase/externalClient';
 import { toast } from 'sonner';
+
+const loadSettingQuery = async (key: string) => {
+  const { data, error } = await (supabase.from('ai_assistant_settings' as any) as any)
+    .select('setting_value')
+    .eq('setting_key', key)
+    .maybeSingle();
+  return { data, error };
+};
+
+const updateSettingQuery = async (key: string, value: any) => {
+  const { error } = await (supabase.from('ai_assistant_settings' as any) as any)
+    .update({ setting_value: value, updated_at: new Date().toISOString() })
+    .eq('setting_key', key);
+  return { error };
+};
 
 interface AISettings {
   enabled: boolean;

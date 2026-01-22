@@ -9,14 +9,18 @@ const EXTERNAL_SUPABASE_ANON_KEY = import.meta.env.VITE_EXTERNAL_SUPABASE_ANON_K
 const SUPABASE_URL = EXTERNAL_SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = EXTERNAL_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-// Create external client without strict typing (for external DB)
-export const externalSupabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+// Create a raw client without strict typing
+const rawClient: SupabaseClient<any, any, any> = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: typeof window !== 'undefined' ? localStorage : undefined,
     persistSession: true,
     autoRefreshToken: true,
   }
 });
+
+// Export as 'any' typed to bypass schema checking for external DB tables
+// This allows queries to tables not defined in the local schema
+export const externalSupabase: any = rawClient;
 
 // Check if external Supabase is configured
 export const isExternalSupabaseConfigured = (): boolean => {

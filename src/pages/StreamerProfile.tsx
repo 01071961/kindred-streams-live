@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase as supabase } from "@/integrations/supabase/externalClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import Navbar from "@/components/Navbar";
@@ -162,7 +162,7 @@ const StreamerProfile = () => {
             <h1 className="text-2xl font-bold mb-4">Streamer não encontrado</h1>
             <p className="text-muted-foreground mb-6">O usuário @{username} não existe ou não é um streamer.</p>
             <Link to="/">
-              <Button variant="gradient">Voltar ao início</Button>
+              <Button variant="hero">Voltar ao início</Button>
             </Link>
           </div>
         </main>
@@ -239,7 +239,7 @@ const StreamerProfile = () => {
 
               <div className="flex gap-3">
                 <Button 
-                  variant={isFollowing ? "outline" : "gradient"} 
+                  variant={isFollowing ? "outline" : "hero"} 
                   onClick={handleFollow}
                 >
                   {isFollowing ? (
