@@ -21,7 +21,8 @@ import {
   DollarSign,
   AlertOctagon
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase } from "@/integrations/supabase/externalClient";
+const supabase = externalSupabase as any;
 import { toast } from "sonner";
 
 interface SectionStatus {
