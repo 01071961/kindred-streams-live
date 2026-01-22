@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { useCart } from "@/contexts/CartContext";
 import { ShopHeroScene } from "@/components/3d/ShopHeroScene";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase as supabase } from "@/integrations/supabase/externalClient";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ProductPreviewModal } from "@/components/ProductPreviewModal";
 import { ProductCard } from "@/components/ProductCard";

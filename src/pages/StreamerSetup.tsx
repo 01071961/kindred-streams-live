@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase as supabase } from "@/integrations/supabase/externalClient";
 import { useToast } from "@/hooks/use-toast";
 import Navbar from "@/components/Navbar";
 
@@ -227,7 +227,7 @@ const StreamerSetup = () => {
                 </div>
               </div>
 
-              <Button type="submit" variant="gradient" className="w-full" disabled={loading}>
+              <Button type="submit" variant="hero" className="w-full" disabled={loading}>
                 <Save className="w-4 h-4 mr-2" />
                 {loading ? "Salvando..." : "Salvar Perfil"}
               </Button>

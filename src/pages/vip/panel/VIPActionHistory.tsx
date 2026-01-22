@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/auth';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase as supabase } from '@/integrations/supabase/externalClient';
 
 const actionConfig: Record<string, { icon: any; color: string; bgColor: string; label: string }> = {
   new_affiliate: { icon: Users, color: 'text-blue-500', bgColor: 'bg-blue-500/10', label: 'Novo Afiliado' },

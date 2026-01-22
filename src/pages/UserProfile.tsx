@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase as supabase } from "@/integrations/supabase/externalClient";
 import { useToast } from "@/hooks/use-toast";
 import Navbar from "@/components/Navbar";
 
@@ -143,7 +143,7 @@ const UserProfile = () => {
                       rows={3}
                     />
                     <div className="flex gap-2">
-                      <Button variant="gradient" onClick={handleUpdateProfile}>
+                      <Button variant="hero" onClick={handleUpdateProfile}>
                         Salvar
                       </Button>
                       <Button variant="outline" onClick={() => setEditing(false)}>
@@ -228,7 +228,7 @@ const UserProfile = () => {
                   Comece a fazer lives e conecte-se com seu público. Configure seu perfil de streamer para começar.
                 </p>
                 <Link to="/streamer/setup">
-                  <Button variant="gradient">
+                  <Button variant="hero">
                     <Play className="w-4 h-4 mr-2" />
                     Configurar Perfil de Streamer
                   </Button>
