@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase } from "@/integrations/supabase/externalClient";
 
 const ABANDONMENT_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 
@@ -33,7 +33,7 @@ export const useChatAbandonment = ({
         if (timeSinceActivity >= ABANDONMENT_TIMEOUT) {
           // Trigger abandonment notification
           try {
-            await supabase.functions.invoke("chat-notifications", {
+            await externalSupabase.functions.invoke("chat-notifications", {
               body: {
                 type: "abandonment",
                 conversationId,
@@ -69,9 +69,9 @@ export const useChatAbandonment = ({
 
     if (conversationId) {
       try {
-        await supabase
+        await externalSupabase
           .from("chat_conversations")
-          .update({ last_activity_at: new Date().toISOString() })
+          .update({ last_activity_at: new Date().toISOString() } as any)
           .eq("id", conversationId);
       } catch (error) {
         console.warn("Error updating activity:", error);
