@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 import { toast } from 'sonner';
 
@@ -73,7 +73,7 @@ export function useVIPFeed(filter: 'all' | 'following' | 'shorts' | 'live' = 'al
 
   const fetchPosts = useCallback(async (offset = 0) => {
     try {
-      let query = supabase
+      let query = externalSupabase
         .from('vip_posts')
         .select('*')
         .order('created_at', { ascending: false })
@@ -84,13 +84,13 @@ export function useVIPFeed(filter: 'all' | 'following' | 'shorts' | 'live' = 'al
       } else if (filter === 'live') {
         query = query.eq('is_live', true);
       } else if (filter === 'following' && user) {
-        const { data: followingIds } = await supabase
+        const { data: followingIds } = await externalSupabase
           .from('vip_follows')
           .select('following_id')
           .eq('follower_id', user.id);
         
         if (followingIds && followingIds.length > 0) {
-          query = query.in('author_id', followingIds.map(f => f.following_id));
+          query = query.in('author_id', (followingIds as any[]).map(f => f.following_id));
         }
       }
 
@@ -100,44 +100,45 @@ export function useVIPFeed(filter: 'all' | 'following' | 'shorts' | 'live' = 'al
 
       // Get author profiles
       if (data && data.length > 0) {
-        const authorIds = [...new Set(data.map(p => p.author_id))];
-        const { data: profiles } = await supabase
+        const postsData = data as any[];
+        const authorIds = [...new Set(postsData.map(p => p.author_id))];
+        const { data: profiles } = await externalSupabase
           .from('profiles')
           .select('user_id, name, avatar_url')
           .in('user_id', authorIds);
 
-        const profilesMap = new Map(profiles?.map(p => [p.user_id, p]) || []);
+        const profilesData = (profiles || []) as any[];
+        const profilesMap = new Map(profilesData.map(p => [p.user_id, p]));
 
         // Get user reactions and bookmarks
         let reactionsMap = new Map();
         let bookmarksSet = new Set<string>();
 
         if (user) {
-          const postIds = data.map(p => p.id);
+          const postIds = postsData.map(p => p.id);
           
           const [reactionsResult, bookmarksResult] = await Promise.all([
-            supabase
+            externalSupabase
               .from('vip_reactions')
               .select('post_id, reaction_type')
               .eq('user_id', user.id)
               .in('post_id', postIds),
-            supabase
+            externalSupabase
               .from('vip_bookmarks')
               .select('post_id')
               .eq('user_id', user.id)
               .in('post_id', postIds)
           ]);
 
-          reactionsMap = new Map(
-            reactionsResult.data?.map(r => [r.post_id, r.reaction_type]) || []
-          );
-          bookmarksSet = new Set(
-            bookmarksResult.data?.map(b => b.post_id) || []
-          );
+          const reactionsData = (reactionsResult.data || []) as any[];
+          const bookmarksData = (bookmarksResult.data || []) as any[];
+          
+          reactionsMap = new Map(reactionsData.map(r => [r.post_id, r.reaction_type]));
+          bookmarksSet = new Set(bookmarksData.map(b => b.post_id));
         }
 
-        const postsWithAuthors = data.map(post => {
-          const profile = profilesMap.get(post.author_id);
+        const postsWithAuthors = postsData.map(post => {
+          const profile = profilesMap.get(post.author_id) as any;
           return {
             ...post,
             media_type: post.media_type as VIPPost['media_type'],
@@ -157,7 +158,7 @@ export function useVIPFeed(filter: 'all' | 'following' | 'shorts' | 'live' = 'al
           setPosts(prev => [...prev, ...postsWithAuthors]);
         }
 
-        setHasMore(data.length === PAGE_SIZE);
+        setHasMore(postsData.length === PAGE_SIZE);
       } else {
         if (offset === 0) {
           setPosts([]);
@@ -186,7 +187,7 @@ export function useVIPFeed(filter: 'all' | 'following' | 'shorts' | 'live' = 'al
 
   // Real-time updates
   useEffect(() => {
-    const channel = supabase
+    const channel = externalSupabase
       .channel('vip-posts-changes')
       .on(
         'postgres_changes',
@@ -196,17 +197,17 @@ export function useVIPFeed(filter: 'all' | 'following' | 'shorts' | 'live' = 'al
             setPosts(prev => [payload.new as VIPPost, ...prev]);
           } else if (payload.eventType === 'UPDATE') {
             setPosts(prev => prev.map(p => 
-              p.id === payload.new.id ? { ...p, ...payload.new } : p
+              p.id === (payload.new as any).id ? { ...p, ...payload.new } : p
             ));
           } else if (payload.eventType === 'DELETE') {
-            setPosts(prev => prev.filter(p => p.id !== payload.old.id));
+            setPosts(prev => prev.filter(p => p.id !== (payload.old as any).id));
           }
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      externalSupabase.removeChannel(channel);
     };
   }, []);
 
@@ -230,7 +231,7 @@ export function useVIPReactions() {
     try {
       // Remove existing reaction if any
       if (currentReaction) {
-        await supabase
+        await externalSupabase
           .from('vip_reactions')
           .delete()
           .eq('user_id', user.id)
@@ -239,7 +240,7 @@ export function useVIPReactions() {
 
       // Add new reaction if different from current
       if (reactionType !== currentReaction) {
-        await supabase
+        await externalSupabase
           .from('vip_reactions')
           .insert({
             user_id: user.id,
@@ -268,13 +269,13 @@ export function useVIPFollow() {
 
   useEffect(() => {
     if (user) {
-      supabase
+      externalSupabase
         .from('vip_follows')
         .select('following_id')
         .eq('follower_id', user.id)
         .then(({ data }) => {
           if (data) {
-            setFollowing(new Set(data.map(f => f.following_id)));
+            setFollowing(new Set((data as any[]).map(f => f.following_id)));
           }
         });
     }
@@ -290,7 +291,7 @@ export function useVIPFollow() {
 
     try {
       if (isCurrentlyFollowing) {
-        await supabase
+        await externalSupabase
           .from('vip_follows')
           .delete()
           .eq('follower_id', user.id)
@@ -303,7 +304,7 @@ export function useVIPFollow() {
         });
         toast.success('Deixou de seguir');
       } else {
-        await supabase
+        await externalSupabase
           .from('vip_follows')
           .insert({
             follower_id: user.id,
@@ -332,7 +333,7 @@ export function useVIPComments(postId: string) {
 
   const fetchComments = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await externalSupabase
         .from('vip_comments')
         .select('*')
         .eq('post_id', postId)
@@ -348,32 +349,37 @@ export function useVIPComments(postId: string) {
         return;
       }
 
+      const commentsData = data as any[];
+      
       // Get all author IDs including from future replies
-      const commentIds = data.map(c => c.id);
-      const { data: allReplies } = await supabase
+      const commentIds = commentsData.map(c => c.id);
+      const { data: allReplies } = await externalSupabase
         .from('vip_comments')
         .select('*')
         .in('parent_id', commentIds)
         .order('created_at', { ascending: true });
 
+      const repliesData = (allReplies || []) as any[];
+
       // Get all unique author IDs
-      const allComments = [...data, ...(allReplies || [])];
+      const allComments = [...commentsData, ...repliesData];
       const authorIds = [...new Set(allComments.map(c => c.author_id))];
 
-      const { data: profiles } = await supabase
+      const { data: profiles } = await externalSupabase
         .from('profiles')
         .select('user_id, name, avatar_url')
         .in('user_id', authorIds);
 
-      const profilesMap = new Map(profiles?.map(p => [p.user_id, p]) || []);
+      const profilesData = (profiles || []) as any[];
+      const profilesMap = new Map(profilesData.map(p => [p.user_id, p]));
 
       // Build comments with authors and replies
-      const commentsWithReplies: VIPComment[] = data.map(comment => {
-        const profile = profilesMap.get(comment.author_id);
-        const replies = (allReplies || [])
+      const commentsWithReplies: VIPComment[] = commentsData.map(comment => {
+        const profile = profilesMap.get(comment.author_id) as any;
+        const replies = repliesData
           .filter(r => r.parent_id === comment.id)
           .map(reply => {
-            const replyProfile = profilesMap.get(reply.author_id);
+            const replyProfile = profilesMap.get(reply.author_id) as any;
             return {
               ...reply,
               author: replyProfile ? {
@@ -410,7 +416,7 @@ export function useVIPComments(postId: string) {
     }
 
     try {
-      const { error } = await supabase
+      const { error } = await externalSupabase
         .from('vip_comments')
         .insert({
           post_id: postId,
@@ -435,7 +441,7 @@ export function useVIPComments(postId: string) {
 
   // Real-time comments
   useEffect(() => {
-    const channel = supabase
+    const channel = externalSupabase
       .channel(`comments-${postId}`)
       .on(
         'postgres_changes',
@@ -447,7 +453,7 @@ export function useVIPComments(postId: string) {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      externalSupabase.removeChannel(channel);
     };
   }, [postId, fetchComments]);
 
@@ -466,14 +472,14 @@ export function useVIPBookmarks() {
 
     try {
       if (isCurrentlyBookmarked) {
-        await supabase
+        await externalSupabase
           .from('vip_bookmarks')
           .delete()
           .eq('user_id', user.id)
           .eq('post_id', postId);
         toast.success('Removido dos salvos');
       } else {
-        await supabase
+        await externalSupabase
           .from('vip_bookmarks')
           .insert({
             user_id: user.id,
@@ -500,23 +506,48 @@ export function useVIPLiveChat(postId: string) {
 
   useEffect(() => {
     const fetchMessages = async () => {
-      const { data } = await supabase
+      const { data } = await externalSupabase
         .from('vip_live_chat')
-        .select(`
-          *,
-          author:profiles!vip_live_chat_author_id_fkey(id, full_name, avatar_url)
-        `)
+        .select('*')
         .eq('post_id', postId)
         .eq('is_deleted', false)
         .order('created_at', { ascending: true })
         .limit(100);
 
-      setMessages(data || []);
+      if (data) {
+        const messagesData = data as any[];
+        const authorIds = [...new Set(messagesData.map(m => m.author_id))];
+        
+        if (authorIds.length > 0) {
+          const { data: profiles } = await externalSupabase
+            .from('profiles')
+            .select('user_id, name, avatar_url')
+            .in('user_id', authorIds);
+          
+          const profilesMap = new Map((profiles as any[] || []).map(p => [p.user_id, p]));
+          
+          const messagesWithAuthors = messagesData.map(msg => {
+            const profile = profilesMap.get(msg.author_id) as any;
+            return {
+              ...msg,
+              author: profile ? {
+                id: profile.user_id,
+                full_name: profile.name,
+                avatar_url: profile.avatar_url,
+              } : undefined,
+            };
+          });
+          
+          setMessages(messagesWithAuthors);
+        } else {
+          setMessages(messagesData);
+        }
+      }
     };
 
     fetchMessages();
 
-    const channel = supabase
+    const channel = externalSupabase
       .channel(`live-chat-${postId}`)
       .on(
         'postgres_changes',
@@ -528,7 +559,7 @@ export function useVIPLiveChat(postId: string) {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      externalSupabase.removeChannel(channel);
     };
   }, [postId]);
 
@@ -539,7 +570,7 @@ export function useVIPLiveChat(postId: string) {
     }
 
     try {
-      await supabase
+      await externalSupabase
         .from('vip_live_chat')
         .insert({
           post_id: postId,
@@ -574,7 +605,7 @@ export function useCreatePost() {
     }
 
     try {
-      const { data: post, error } = await supabase
+      const { data: post, error } = await externalSupabase
         .from('vip_posts')
         .insert({
           author_id: user.id,

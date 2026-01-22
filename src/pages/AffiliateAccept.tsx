@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 import Layout from '@/components/Layout';
 
@@ -19,6 +19,7 @@ interface Invite {
   commission_rate: number;
   status: string;
   invited_by: string | null;
+  expires_at: string;
   program?: {
     name: string;
     description: string;
@@ -53,12 +54,9 @@ export default function AffiliateAccept() {
     try {
       setIsLoading(true);
       
-      const { data: inviteData, error: inviteError } = await supabase
+      const { data: inviteData, error: inviteError } = await externalSupabase
         .from('affiliate_invites')
-        .select(`
-          *,
-          program:program_id (name, description)
-        `)
+        .select('*')
         .eq('token', token)
         .single();
 
@@ -67,17 +65,30 @@ export default function AffiliateAccept() {
         return;
       }
 
-      if (inviteData.status === 'accepted') {
+      const invite = inviteData as any;
+
+      // Fetch program separately if exists
+      let program = null;
+      if (invite.program_id) {
+        const { data: programData } = await externalSupabase
+          .from('affiliate_programs')
+          .select('name, description')
+          .eq('id', invite.program_id)
+          .single();
+        program = programData as any;
+      }
+
+      if (invite.status === 'accepted') {
         setError('Este convite já foi aceito');
         return;
       }
 
-      if (inviteData.status === 'expired' || new Date(inviteData.expires_at) < new Date()) {
+      if (invite.status === 'expired' || new Date(invite.expires_at) < new Date()) {
         setError('Este convite expirou');
         return;
       }
 
-      setInvite(inviteData as Invite);
+      setInvite({ ...invite, program } as Invite);
     } catch (err) {
       console.error('Erro ao carregar convite:', err);
       setError('Erro ao carregar convite');
@@ -100,13 +111,15 @@ export default function AffiliateAccept() {
     }
 
     // Check email match
-    const { data: profile } = await supabase
+    const { data: profile } = await externalSupabase
       .from('profiles')
       .select('email')
       .eq('user_id', user.id)
       .single();
 
-    if (profile?.email !== invite.email) {
+    const profileData = profile as any;
+
+    if (profileData?.email !== invite.email) {
       toast({
         title: 'Email não corresponde',
         description: 'Faça login com o email que recebeu o convite.',
@@ -126,7 +139,7 @@ export default function AffiliateAccept() {
       }
 
       // Create affiliate
-      const { data: affiliate, error: affiliateError } = await supabase
+      const { data: affiliate, error: affiliateError } = await externalSupabase
         .from('vip_affiliates')
         .insert({
           user_id: user.id,
@@ -138,20 +151,20 @@ export default function AffiliateAccept() {
           bank_info: bankInfo.bank ? bankInfo : null,
           status: 'approved', // Auto-approve invited affiliates
           approved_at: new Date().toISOString(),
-        })
+        } as any)
         .select()
         .single();
 
       if (affiliateError) throw affiliateError;
 
       // Update invite status
-      await supabase
+      await externalSupabase
         .from('affiliate_invites')
         .update({
           status: 'accepted',
           accepted_at: new Date().toISOString(),
           accepted_by: user.id,
-        })
+        } as any)
         .eq('id', invite.id);
 
       setAccepted(true);
