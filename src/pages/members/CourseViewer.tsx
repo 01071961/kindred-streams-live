@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { extQuery } from '@/integrations/supabase/externalQueries';
 import { useAuth } from '@/auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -322,14 +322,13 @@ const CourseViewer = () => {
 
   const fetchUserProfile = async () => {
     try {
-      const { data } = await supabase
-        .from('profiles')
+      const { data } = await extQuery('profiles')
         .select('name')
         .eq('id', user?.id)
         .maybeSingle();
       
-      if (data?.name) {
-        setUserName(data.name);
+      if ((data as any)?.name) {
+        setUserName((data as any).name);
       } else if (user?.email) {
         setUserName(user.email.split('@')[0]);
       }
@@ -341,8 +340,7 @@ const CourseViewer = () => {
   const fetchCourseData = async () => {
     try {
       // Fetch course info with access_days
-      const { data: courseData, error: courseError } = await supabase
-        .from('products')
+      const { data: courseData, error: courseError } = await extQuery('products')
         .select('id, name, description, cover_image_url, access_days')
         .eq('id', productId)
         .maybeSingle();
@@ -355,11 +353,10 @@ const CourseViewer = () => {
         return;
       }
       
-      setCourse(courseData);
+      setCourse(courseData as Course);
       
       // Fetch enrollment info
-      const { data: enrollmentData, error: enrollmentError } = await supabase
-        .from('enrollments')
+      const { data: enrollmentData, error: enrollmentError } = await extQuery('enrollments')
         .select('enrolled_at, expires_at')
         .eq('product_id', productId)
         .eq('user_id', user?.id)
@@ -367,7 +364,7 @@ const CourseViewer = () => {
         .maybeSingle();
       
       if (!enrollmentError && enrollmentData) {
-        setEnrollment(enrollmentData);
+        setEnrollment(enrollmentData as Enrollment);
       } else if (!enrollmentData) {
         // User doesn't have access to this course
         toast.error('Você não tem acesso a este curso');
@@ -376,8 +373,7 @@ const CourseViewer = () => {
       }
 
       // Fetch modules with lessons (including quiz fields and download_files)
-      const { data: modulesData, error: modulesError } = await supabase
-        .from('product_modules')
+      const { data: modulesData, error: modulesError } = await extQuery('product_modules')
         .select(`
           id,
           name,
@@ -406,13 +402,13 @@ const CourseViewer = () => {
 
       if (modulesError) throw modulesError;
 
-      const sortedModules = (modulesData || []).map(m => ({
+      const sortedModules = ((modulesData || []) as any[]).map((m: any) => ({
         ...m,
-        lessons: (m.lessons || []).map(l => ({
+        lessons: ((m.lessons || []) as any[]).map((l: any) => ({
           ...l,
           quiz_questions: Array.isArray(l.quiz_questions) ? l.quiz_questions as unknown as QuizQuestion[] : [],
           download_files: Array.isArray(l.download_files) ? l.download_files as unknown as DownloadFile[] : []
-        })).sort((a, b) => a.position - b.position)
+        })).sort((a: any, b: any) => a.position - b.position)
       })) as Module[];
 
       setModules(sortedModules);
@@ -432,27 +428,25 @@ const CourseViewer = () => {
   const fetchProgress = async () => {
     try {
       // Fetch completed lessons
-      const { data, error } = await supabase
-        .from('lesson_progress')
+      const { data, error } = await extQuery('lesson_progress')
         .select('lesson_id')
         .eq('user_id', user?.id)
         .eq('completed', true);
 
       if (error) throw error;
 
-      const completedIds = new Set((data || []).map(p => p.lesson_id));
+      const completedIds = new Set<string>(((data || []) as any[]).map((p: any) => p.lesson_id));
       setCompletedLessons(completedIds);
 
       // Fetch passed quizzes
-      const { data: quizData } = await supabase
-        .from('lesson_quiz_attempts')
+      const { data: quizData } = await extQuery('lesson_quiz_attempts')
         .select('lesson_id, score')
         .eq('user_id', user?.id)
         .eq('passed', true);
       
       if (quizData) {
         const quizMap = new Map<string, number>();
-        quizData.forEach(attempt => {
+        ((quizData as any[]) || []).forEach((attempt: any) => {
           const current = quizMap.get(attempt.lesson_id) || 0;
           if (attempt.score > current) {
             quizMap.set(attempt.lesson_id, attempt.score);
@@ -473,8 +467,7 @@ const CourseViewer = () => {
 
   const markLessonComplete = async (lessonId: string) => {
     try {
-      const { error } = await supabase
-        .from('lesson_progress')
+      const { error } = await extQuery('lesson_progress')
         .upsert({
           user_id: user?.id,
           lesson_id: lessonId,
@@ -493,8 +486,7 @@ const CourseViewer = () => {
       const newProgress = Math.round((newCompletedLessons.size / totalLessons) * 100);
       setProgress(newProgress);
 
-      await supabase
-        .from('enrollments')
+      await extQuery('enrollments')
         .update({ 
           progress_percent: newProgress,
           last_accessed_at: new Date().toISOString()
@@ -506,8 +498,7 @@ const CourseViewer = () => {
       if (newProgress >= 100) {
         // Auto-create certificate record if doesn't exist
         try {
-          const { data: existingCert } = await supabase
-            .from('course_certificates')
+          const { data: existingCert } = await extQuery('course_certificates')
             .select('id')
             .eq('user_id', user?.id)
             .eq('product_id', productId)
@@ -529,7 +520,7 @@ const CourseViewer = () => {
             const certNumber = `SKY-${new Date().getFullYear()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
             const valCode = Math.random().toString(36).substring(2, 10).toUpperCase();
 
-            await supabase.from('course_certificates').insert({
+            await extQuery('course_certificates').insert({
               user_id: user?.id,
               product_id: productId,
               student_name: userName || user?.email?.split('@')[0] || 'Aluno',
@@ -707,7 +698,7 @@ const CourseViewer = () => {
                     const module = modules.find(m => m.lessons.some(l => l.id === activeLesson.id));
                     if (module) {
                       try {
-                        await supabase.from('historico_modulos').upsert({
+                        await extQuery('historico_modulos').upsert({
                           user_id: user.id,
                           product_id: productId,
                           modulo_id: module.id,

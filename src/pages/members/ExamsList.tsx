@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { extQuery } from '@/integrations/supabase/externalQueries';
 import { useAuth } from '@/auth';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -36,13 +36,12 @@ export default function ExamsList() {
   const { data: exams, isLoading: examsLoading } = useQuery({
     queryKey: ['available-exams'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('financial_exams')
+      const { data, error } = await extQuery('financial_exams')
         .select('*')
         .eq('status', 'published')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return data;
+      return data as any[];
     },
   });
 
@@ -51,13 +50,12 @@ export default function ExamsList() {
     queryKey: ['my-exam-attempts', user?.id],
     queryFn: async () => {
       if (!user) return [];
-      const { data, error } = await supabase
-        .from('exam_attempts')
+      const { data, error } = await extQuery('exam_attempts')
         .select('*, financial_exams(title, certification)')
         .eq('user_id', user.id)
         .order('started_at', { ascending: false });
       if (error) throw error;
-      return data;
+      return data as any[];
     },
     enabled: !!user,
   });
@@ -67,12 +65,11 @@ export default function ExamsList() {
     queryKey: ['my-certification-progress', user?.id],
     queryFn: async () => {
       if (!user) return [];
-      const { data, error } = await supabase
-        .from('certification_progress')
+      const { data, error } = await extQuery('certification_progress')
         .select('*')
         .eq('user_id', user.id);
       if (error) throw error;
-      return data;
+      return data as any[];
     },
     enabled: !!user,
   });
@@ -82,8 +79,7 @@ export default function ExamsList() {
     mutationFn: async (examId: string) => {
       if (!user) throw new Error('Usuário não autenticado');
       
-      const { data, error } = await supabase
-        .from('exam_attempts')
+      const { data, error } = await extQuery('exam_attempts')
         .insert({
           exam_id: examId,
           user_id: user.id,
@@ -96,7 +92,7 @@ export default function ExamsList() {
       if (error) throw error;
       return data;
     },
-    onSuccess: (attempt) => {
+    onSuccess: (attempt: any) => {
       navigate(`/members/exams/${attempt.exam_id}/play/${attempt.id}`);
     },
     onError: (error) => {
