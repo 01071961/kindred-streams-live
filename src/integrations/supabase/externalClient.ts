@@ -2,10 +2,8 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Environment variables for external Supabase
-const EXTERNAL_SUPABASE_URL = import.meta.env.VITE_EXTERNAL_SUPABASE_URL || 
-  (typeof Deno !== 'undefined' ? Deno.env.get('EXTERNAL_SUPABASE_URL') : '');
-const EXTERNAL_SUPABASE_ANON_KEY = import.meta.env.VITE_EXTERNAL_SUPABASE_ANON_KEY || 
-  (typeof Deno !== 'undefined' ? Deno.env.get('EXTERNAL_SUPABASE_ANON_KEY') : '');
+const EXTERNAL_SUPABASE_URL = import.meta.env.VITE_EXTERNAL_SUPABASE_URL || '';
+const EXTERNAL_SUPABASE_ANON_KEY = import.meta.env.VITE_EXTERNAL_SUPABASE_ANON_KEY || '';
 
 // Fallback to Cloud values if external not configured
 const SUPABASE_URL = EXTERNAL_SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;

@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { CheckCircle, Package, Home, ShoppingBag, BookOpen, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase } from "@/integrations/supabase/externalClient";
 import { useAuth } from "@/auth";
 
 interface Enrollment {
@@ -34,16 +34,33 @@ const PaymentSuccess = () => {
         // Fetch recent enrollments (created in last 5 minutes)
         const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
         
-        const { data, error } = await supabase
+        const { data, error } = await externalSupabase
           .from('enrollments')
-          .select('id, product:products(name, cover_image_url)')
+          .select('id, product_id')
           .eq('user_id', user.id)
           .gte('enrolled_at', fiveMinutesAgo)
           .eq('status', 'active')
           .limit(5);
 
         if (!error && data) {
-          setRecentEnrollments(data as Enrollment[]);
+          const enrollmentsData = data as any[];
+          const productIds = enrollmentsData.map(e => e.product_id);
+          
+          if (productIds.length > 0) {
+            const { data: products } = await externalSupabase
+              .from('products')
+              .select('id, name, cover_image_url')
+              .in('id', productIds);
+            
+            const productsMap = new Map((products as any[] || []).map(p => [p.id, p]));
+            
+            const enrichedEnrollments = enrollmentsData.map(e => ({
+              id: e.id,
+              product: productsMap.get(e.product_id) || null
+            }));
+            
+            setRecentEnrollments(enrichedEnrollments as Enrollment[]);
+          }
         }
       } catch (err) {
         console.error('[PaymentSuccess] Error loading enrollments:', err);

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 import { toast } from 'sonner';
 
@@ -51,7 +51,7 @@ export function useVIPSocialNetwork() {
     if (!user) return;
 
     try {
-      const { data: affiliate } = await supabase
+      const { data: affiliate } = await externalSupabase
         .from('vip_affiliates')
         .select('id, tier, is_creator, user_id')
         .eq('user_id', user.id)
@@ -63,46 +63,52 @@ export function useVIPSocialNetwork() {
         return;
       }
 
-      const { data: profile } = await supabase
+      const affiliateData = affiliate as any;
+
+      const { data: profile } = await externalSupabase
         .from('profiles')
         .select('name, avatar_url, followers_count, following_count')
         .eq('user_id', user.id)
         .single();
 
+      const profileData = profile as any;
+
       // Count posts
-      const { count: postsCount } = await supabase
+      const { count: postsCount } = await externalSupabase
         .from('affiliate_posts')
         .select('*', { count: 'exact', head: true })
-        .eq('author_id', affiliate.id);
+        .eq('author_id', affiliateData.id);
 
       setMyProfile({
-        id: affiliate.id,
-        userId: affiliate.user_id,
-        name: profile?.name || user.email?.split('@')[0] || 'Afiliado',
-        avatarUrl: profile?.avatar_url || '',
-        tier: affiliate.tier || 'bronze',
-        isCreator: affiliate.is_creator || false,
-        followersCount: profile?.followers_count || 0,
-        followingCount: profile?.following_count || 0,
+        id: affiliateData.id,
+        userId: affiliateData.user_id,
+        name: profileData?.name || user.email?.split('@')[0] || 'Afiliado',
+        avatarUrl: profileData?.avatar_url || '',
+        tier: affiliateData.tier || 'bronze',
+        isCreator: affiliateData.is_creator || false,
+        followersCount: profileData?.followers_count || 0,
+        followingCount: profileData?.following_count || 0,
         postsCount: postsCount || 0
       });
 
       // Load following list
-      const { data: following } = await supabase
+      const { data: following } = await externalSupabase
         .from('affiliate_follows')
         .select('following_id')
-        .eq('follower_id', affiliate.id);
+        .eq('follower_id', affiliateData.id);
 
-      setFollowingIds(new Set(following?.map(f => f.following_id) || []));
+      const followingData = (following || []) as any[];
+      setFollowingIds(new Set(followingData.map(f => f.following_id)));
 
       // Load liked posts
-      const { data: likes } = await supabase
+      const { data: likes } = await externalSupabase
         .from('affiliate_post_likes')
         .select('post_id')
-        .eq('affiliate_id', affiliate.id)
+        .eq('affiliate_id', affiliateData.id)
         .not('post_id', 'is', null);
 
-      setLikedPostIds(new Set(likes?.map(l => l.post_id!) || []));
+      const likesData = (likes || []) as any[];
+      setLikedPostIds(new Set(likesData.map(l => l.post_id!)));
     } catch (error) {
       console.error('Error fetching profile:', error);
     } finally {
@@ -119,7 +125,7 @@ export function useVIPSocialNetwork() {
 
     try {
       if (followingIds.has(affiliateId)) {
-        await supabase
+        await externalSupabase
           .from('affiliate_follows')
           .delete()
           .eq('follower_id', myProfile.id)
@@ -132,12 +138,12 @@ export function useVIPSocialNetwork() {
         });
         toast.success('Deixou de seguir');
       } else {
-        await supabase
+        await externalSupabase
           .from('affiliate_follows')
           .insert({
             follower_id: myProfile.id,
             following_id: affiliateId
-          });
+          } as any);
 
         setFollowingIds(prev => new Set(prev).add(affiliateId));
         toast.success('Seguindo!');
@@ -155,7 +161,7 @@ export function useVIPSocialNetwork() {
 
     try {
       if (likedPostIds.has(postId)) {
-        await supabase
+        await externalSupabase
           .from('affiliate_post_likes')
           .delete()
           .eq('post_id', postId)
@@ -167,12 +173,12 @@ export function useVIPSocialNetwork() {
           return next;
         });
       } else {
-        await supabase
+        await externalSupabase
           .from('affiliate_post_likes')
           .insert({
             post_id: postId,
             affiliate_id: myProfile.id
-          });
+          } as any);
 
         setLikedPostIds(prev => new Set(prev).add(postId));
       }
@@ -190,7 +196,7 @@ export function useVIPSocialNetwork() {
     }
 
     try {
-      const { data: post, error } = await supabase
+      const { data: post, error } = await externalSupabase
         .from('affiliate_posts')
         .insert({
           author_id: myProfile.id,
@@ -198,7 +204,7 @@ export function useVIPSocialNetwork() {
           content: data.content,
           category: data.category,
           image_url: data.imageUrl
-        })
+        } as any)
         .select()
         .single();
 
@@ -220,13 +226,13 @@ export function useVIPSocialNetwork() {
     }
 
     try {
-      const { data: post, error } = await supabase
+      const { data: post, error } = await externalSupabase
         .from('affiliate_posts')
         .update({
           title: title.trim() || null,
           content: content.trim(),
           updated_at: new Date().toISOString()
-        })
+        } as any)
         .eq('id', postId)
         .eq('author_id', myProfile.id)
         .select()
@@ -247,13 +253,13 @@ export function useVIPSocialNetwork() {
     if (!myProfile || !content.trim()) return null;
 
     try {
-      const { data: comment, error } = await supabase
+      const { data: comment, error } = await externalSupabase
         .from('affiliate_post_comments')
         .insert({
           post_id: postId,
           author_id: myProfile.id,
           content: content.trim()
-        })
+        } as any)
         .select()
         .single();
 
@@ -275,19 +281,19 @@ export function useVIPSocialNetwork() {
 
     try {
       // First delete related likes
-      await supabase
+      await externalSupabase
         .from('affiliate_post_likes')
         .delete()
         .eq('post_id', postId);
 
       // Delete related comments
-      await supabase
+      await externalSupabase
         .from('affiliate_post_comments')
         .delete()
         .eq('post_id', postId);
 
       // Delete the post
-      const { error } = await supabase
+      const { error } = await externalSupabase
         .from('affiliate_posts')
         .delete()
         .eq('id', postId)

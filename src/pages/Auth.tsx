@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/auth';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import GoogleLoginButton from '@/components/GoogleLoginButton';
 
 type AuthView = 'portal-select' | 'login' | 'signup' | 'forgot-password';
@@ -73,7 +73,7 @@ const Auth = () => {
     console.log('[Auth] Processing invite for user:', userId);
     
     try {
-      const { data, error } = await supabase.functions.invoke('accept-invite', {
+      const { data, error } = await externalSupabase.functions.invoke('accept-invite', {
         body: { token, userId }
       });
       
@@ -153,7 +153,7 @@ const Auth = () => {
     if (!referralCode) return;
     
     try {
-      const { data: affiliate } = await supabase
+      const { data: affiliate } = await externalSupabase
         .from('vip_affiliates')
         .select('id, user_id')
         .eq('referral_code', referralCode)
@@ -162,25 +162,27 @@ const Auth = () => {
 
       if (!affiliate) return;
 
-      await supabase
+      const affiliateData = affiliate as any;
+
+      await externalSupabase
         .from('affiliate_referrals')
         .insert({
-          referrer_id: affiliate.id,
+          referrer_id: affiliateData.id,
           referred_email: email,
           status: 'pending',
-        });
+        } as any);
 
-      await supabase.functions.invoke('referral-notifications', {
+      await externalSupabase.functions.invoke('referral-notifications', {
         body: {
           type: 'referral_signup',
-          referrer_id: affiliate.id,
+          referrer_id: affiliateData.id,
           referred_email: email,
           referred_name: email.split('@')[0],
         },
       });
 
       localStorage.setItem('pending_referral_bonus', JSON.stringify({
-        referrer_id: affiliate.id,
+        referrer_id: affiliateData.id,
         points: WELCOME_BONUS,
       }));
     } catch (error) {
