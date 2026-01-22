@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, Suspense, lazy, useRef, memo } from '
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
+const supabase = externalSupabase as any;
 import {
   DndContext,
   closestCenter,

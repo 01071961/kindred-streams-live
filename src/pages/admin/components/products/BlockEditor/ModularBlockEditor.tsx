@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
+const supabase = externalSupabase as any;
 import { 
   Plus, Save, Eye, EyeOff, Undo, Redo, Palette, Loader2,
   Layout, Star, CheckCircle, Users, HelpCircle, DollarSign,

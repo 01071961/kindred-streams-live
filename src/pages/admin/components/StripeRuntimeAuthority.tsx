@@ -15,7 +15,8 @@ import {
   AlertOctagon,
   Eye
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase } from "@/integrations/supabase/externalClient";
+const supabase = externalSupabase as any;
 import { motion, AnimatePresence } from "framer-motion";
 
 interface HealthCheckResult {
