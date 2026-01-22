@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 import { format, subDays, startOfDay, eachDayOfInterval } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -24,6 +24,25 @@ export interface ActivitySummary {
 interface UseUserActivityOptions {
   days?: number;
   enabled?: boolean;
+}
+
+interface LessonProgressData {
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface ExamAttemptData {
+  created_at: string;
+}
+
+interface EventData {
+  created_at?: string;
+  event_name?: string;
+}
+
+interface UserPointsData {
+  current_balance?: number;
+  total_earned?: number;
 }
 
 export function useUserActivity(options: UseUserActivityOptions = {}) {
@@ -62,46 +81,54 @@ export function useUserActivity(options: UseUserActivityOptions = {}) {
       });
 
       // Fetch lesson progress
-      const { data: lessonsData } = await supabase
+      const { data: lessonsRaw } = await externalSupabase
         .from('lesson_progress')
         .select('created_at, updated_at')
         .eq('user_id', user.id)
         .gte('updated_at', startDate.toISOString());
 
+      const lessonsData = (lessonsRaw || []) as unknown as LessonProgressData[];
+
       // Fetch exam attempts
-      const { data: examsData } = await supabase
+      const { data: examsRaw } = await externalSupabase
         .from('exam_attempts')
         .select('created_at')
         .eq('user_id', user.id)
         .gte('created_at', startDate.toISOString());
 
+      const examsData = (examsRaw || []) as unknown as ExamAttemptData[];
+
       // Fetch analytics events (views)
-      const { data: eventsData } = await supabase
+      const { data: eventsRaw } = await externalSupabase
         .from('analytics_events')
         .select('created_at, event_name')
         .eq('user_id', user.id)
         .gte('created_at', startDate.toISOString());
 
+      const eventsData = (eventsRaw || []) as unknown as EventData[];
+
       // Get total points (we'll distribute evenly across days as approximation)
-      const { data: userPoints } = await supabase
+      const { data: pointsRaw } = await externalSupabase
         .from('user_points')
         .select('current_balance, total_earned')
         .eq('user_id', user.id)
         .maybeSingle();
 
+      const userPoints = pointsRaw as unknown as UserPointsData | null;
+
       // Distribute points evenly across days for visualization
       const avgPointsPerDay = userPoints?.total_earned ? Math.round(userPoints.total_earned / days) : 0;
 
       // Process lessons data
-      lessonsData?.forEach(l => {
-        const key = format(new Date(l.updated_at || l.created_at), 'yyyy-MM-dd');
+      lessonsData.forEach(l => {
+        const key = format(new Date(l.updated_at || l.created_at || new Date()), 'yyyy-MM-dd');
         if (dataByDay[key]) {
           dataByDay[key].lessons += 1;
         }
       });
 
       // Process exams data
-      examsData?.forEach(e => {
+      examsData.forEach(e => {
         const key = format(new Date(e.created_at), 'yyyy-MM-dd');
         if (dataByDay[key]) {
           dataByDay[key].exams += 1;
@@ -109,15 +136,17 @@ export function useUserActivity(options: UseUserActivityOptions = {}) {
       });
 
       // Process events data (views)
-      eventsData?.forEach(e => {
-        const key = format(new Date(e.created_at!), 'yyyy-MM-dd');
-        if (dataByDay[key]) {
-          dataByDay[key].views += 1;
+      eventsData.forEach(e => {
+        if (e.created_at) {
+          const key = format(new Date(e.created_at), 'yyyy-MM-dd');
+          if (dataByDay[key]) {
+            dataByDay[key].views += 1;
+          }
         }
       });
 
       // Convert to array format - add average points per day
-      const activityData: ActivityData[] = dateRange.map((date, index) => {
+      const activityData: ActivityData[] = dateRange.map((date) => {
         const key = format(date, 'yyyy-MM-dd');
         const dayData = dataByDay[key];
         return {
@@ -193,28 +222,29 @@ export function useAdminActivity(options: UseUserActivityOptions = {}) {
       });
 
       // Fetch all lesson progress
-      const { data: lessonsData } = await supabase
+      const { data: lessonsRaw } = await externalSupabase
         .from('lesson_progress')
         .select('updated_at')
         .gte('updated_at', startDate.toISOString());
 
+      const lessonsData = (lessonsRaw || []) as unknown as Array<{ updated_at?: string }>;
+
       // Fetch all exam attempts
-      const { data: examsData } = await supabase
+      const { data: examsRaw } = await externalSupabase
         .from('exam_attempts')
         .select('created_at')
         .gte('created_at', startDate.toISOString());
 
-      lessonsData?.forEach(l => {
-        const key = format(new Date(l.updated_at!), 'yyyy-MM-dd');
-        if (dataByDay[key]) dataByDay[key].lessons += 1;
+      const examsData = (examsRaw || []) as unknown as Array<{ created_at: string }>;
+
+      lessonsData.forEach(l => {
+        if (l.updated_at) {
+          const key = format(new Date(l.updated_at), 'yyyy-MM-dd');
+          if (dataByDay[key]) dataByDay[key].lessons += 1;
+        }
       });
 
-      lessonsData?.forEach(l => {
-        const key = format(new Date(l.updated_at!), 'yyyy-MM-dd');
-        if (dataByDay[key]) dataByDay[key].lessons += 1;
-      });
-
-      examsData?.forEach(e => {
+      examsData.forEach(e => {
         const key = format(new Date(e.created_at), 'yyyy-MM-dd');
         if (dataByDay[key]) dataByDay[key].exams += 1;
       });

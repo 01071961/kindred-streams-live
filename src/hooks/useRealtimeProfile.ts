@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 
 export interface ProfileInfo {
@@ -82,6 +82,41 @@ const getTierLevel = (tier: string): number => {
   return idx >= 0 ? idx : 0;
 };
 
+interface ProfileData {
+  id: string;
+  name?: string;
+  display_name?: string;
+  email?: string;
+  avatar_url?: string;
+  cover_image_url?: string;
+  bio?: string;
+  headline?: string;
+  location?: string;
+  phone?: string;
+  website_url?: string;
+  linkedin_url?: string;
+  twitter_url?: string;
+  instagram_url?: string;
+  youtube_url?: string;
+  subscription_tier?: string;
+  subscription_status?: string;
+  profile_views?: number;
+  is_public?: boolean;
+}
+
+interface AffiliateData {
+  tier?: string;
+  referral_count?: number;
+  available_balance?: number;
+  total_earnings?: number;
+}
+
+interface PointsData {
+  current_balance?: number;
+  total_earned?: number;
+  tier?: string;
+}
+
 export const useRealtimeProfile = () => {
   const { user } = useAuth();
   const [profile, setProfile] = useState<ProfileInfo>(defaultProfile);
@@ -96,7 +131,7 @@ export const useRealtimeProfile = () => {
 
     try {
       // Fetch profile data
-      const { data: profileData, error: profileError } = await supabase
+      const { data: profileRaw, error: profileError } = await externalSupabase
         .from('profiles')
         .select('*')
         .eq('user_id', user.id)
@@ -104,19 +139,25 @@ export const useRealtimeProfile = () => {
 
       if (profileError) throw profileError;
 
+      const profileData = profileRaw as unknown as ProfileData | null;
+
       // Fetch VIP affiliate data for tier/points
-      const { data: affiliateData } = await supabase
+      const { data: affiliateRaw } = await externalSupabase
         .from('vip_affiliates')
         .select('tier, referral_count, available_balance, total_earnings')
         .eq('user_id', user.id)
         .maybeSingle();
 
+      const affiliateData = affiliateRaw as unknown as AffiliateData | null;
+
       // Fetch user points
-      const { data: pointsData } = await supabase
+      const { data: pointsRaw } = await externalSupabase
         .from('user_points')
         .select('current_balance, total_earned, tier')
         .eq('user_id', user.id)
         .maybeSingle();
+
+      const pointsData = pointsRaw as unknown as PointsData | null;
 
       if (profileData) {
         // Determine effective tier (highest between profile and affiliate)
@@ -136,21 +177,21 @@ export const useRealtimeProfile = () => {
 
         setProfile({
           id: profileData.id,
-          name: profileData.name,
+          name: profileData.name || profileData.display_name || null,
           email: profileData.email || user.email || null,
-          avatarUrl: profileData.avatar_url,
-          coverImageUrl: profileData.cover_image_url,
-          bio: profileData.bio,
-          headline: profileData.headline,
-          location: profileData.location,
-          phone: profileData.phone,
-          websiteUrl: profileData.website_url,
-          linkedinUrl: profileData.linkedin_url,
-          twitterUrl: profileData.twitter_url,
-          instagramUrl: profileData.instagram_url,
-          youtubeUrl: profileData.youtube_url,
+          avatarUrl: profileData.avatar_url || null,
+          coverImageUrl: profileData.cover_image_url || null,
+          bio: profileData.bio || null,
+          headline: profileData.headline || null,
+          location: profileData.location || null,
+          phone: profileData.phone || null,
+          websiteUrl: profileData.website_url || null,
+          linkedinUrl: profileData.linkedin_url || null,
+          twitterUrl: profileData.twitter_url || null,
+          instagramUrl: profileData.instagram_url || null,
+          youtubeUrl: profileData.youtube_url || null,
           subscriptionTier: effectiveTier,
-          subscriptionStatus: profileData.subscription_status,
+          subscriptionStatus: profileData.subscription_status || null,
           profileViews: profileData.profile_views || 0,
           isPublic: profileData.is_public || false,
         });
@@ -180,7 +221,7 @@ export const useRealtimeProfile = () => {
   useEffect(() => {
     if (!user?.id) return;
 
-    const channel = supabase
+    const channel = externalSupabase
       .channel(`profile-realtime-${user.id}`)
       .on(
         'postgres_changes',
@@ -221,7 +262,7 @@ export const useRealtimeProfile = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      externalSupabase.removeChannel(channel);
     };
   }, [user?.id, fetchProfile]);
 
