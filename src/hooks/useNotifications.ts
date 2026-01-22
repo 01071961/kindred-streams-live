@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 import { toast } from 'sonner';
-import type { Json } from '@/integrations/supabase/types';
 
 export interface Notification {
   id: string;
@@ -35,7 +34,7 @@ export const useNotifications = () => {
     
     setError(null);
     try {
-      const { data, error: fetchError } = await supabase
+      const { data, error: fetchError } = await externalSupabase
         .from('notifications')
         .select('*')
         .eq('user_id', user.id)
@@ -44,7 +43,7 @@ export const useNotifications = () => {
 
       if (fetchError) throw fetchError;
       
-      const typedData = (data || []) as Notification[];
+      const typedData = (data || []) as unknown as Notification[];
       setNotifications(typedData);
       setUnreadCount(typedData.filter(n => !n.read_at).length);
     } catch (err) {
@@ -59,9 +58,9 @@ export const useNotifications = () => {
   // Mark as read
   const markAsRead = useCallback(async (notificationId: string) => {
     try {
-      const { error: updateError } = await supabase
+      const { error: updateError } = await externalSupabase
         .from('notifications')
-        .update({ read_at: new Date().toISOString() })
+        .update({ read_at: new Date().toISOString() } as any)
         .eq('id', notificationId);
 
       if (updateError) throw updateError;
@@ -81,9 +80,9 @@ export const useNotifications = () => {
     if (!user?.id) return;
     
     try {
-      const { error: updateError } = await supabase
+      const { error: updateError } = await externalSupabase
         .from('notifications')
-        .update({ read_at: new Date().toISOString() })
+        .update({ read_at: new Date().toISOString() } as any)
         .eq('user_id', user.id)
         .is('read_at', null);
 
@@ -105,7 +104,7 @@ export const useNotifications = () => {
     try {
       const notification = notifications.find(n => n.id === notificationId);
       
-      const { error: deleteError } = await supabase
+      const { error: deleteError } = await externalSupabase
         .from('notifications')
         .delete()
         .eq('id', notificationId);
@@ -127,7 +126,7 @@ export const useNotifications = () => {
     if (!user?.id) return;
     
     try {
-      const { error: deleteError } = await supabase
+      const { error: deleteError } = await externalSupabase
         .from('notifications')
         .delete()
         .eq('user_id', user.id);
@@ -152,7 +151,7 @@ export const useNotifications = () => {
 
     fetchNotifications();
 
-    const channel = supabase
+    const channel = externalSupabase
       .channel(`notifications-${user.id}`)
       .on(
         'postgres_changes',
@@ -204,7 +203,7 @@ export const useNotifications = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      externalSupabase.removeChannel(channel);
     };
   }, [user?.id, fetchNotifications]);
 
@@ -227,16 +226,16 @@ export const createNotification = async (
   notification: Omit<Notification, 'id' | 'user_id' | 'created_at'>
 ): Promise<boolean> => {
   try {
-    const { error } = await supabase
+    const { error } = await externalSupabase
       .from('notifications')
       .insert([{
         user_id: userId,
         type: notification.type,
         title: notification.title,
         message: notification.message,
-        data: (notification.data ? JSON.parse(JSON.stringify(notification.data)) : {}) as Json,
+        data: notification.data ? JSON.parse(JSON.stringify(notification.data)) : {},
         action_url: notification.action_url
-      }]);
+      }] as any);
 
     if (error) throw error;
     return true;
@@ -254,7 +253,7 @@ export const createBatchNotifications = async (
   }>
 ): Promise<boolean> => {
   try {
-    const { error } = await supabase
+    const { error } = await externalSupabase
       .from('notifications')
       .insert(
         notifications.map(({ userId, notification }) => ({
@@ -262,9 +261,9 @@ export const createBatchNotifications = async (
           type: notification.type,
           title: notification.title,
           message: notification.message,
-          data: (notification.data ? JSON.parse(JSON.stringify(notification.data)) : {}) as Json,
+          data: notification.data ? JSON.parse(JSON.stringify(notification.data)) : {},
           action_url: notification.action_url
-        }))
+        })) as any
       );
 
     if (error) throw error;

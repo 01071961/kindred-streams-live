@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
+
+interface StudyStreakData {
+  current_streak?: number;
+  longest_streak?: number;
+  last_activity_date?: string;
+  total_study_days?: number;
+}
 
 interface StudyStreak {
   currentStreak: number;
@@ -26,7 +33,7 @@ export const useStudyStreak = () => {
     }
 
     try {
-      const { data, error } = await supabase
+      const { data: rawData, error } = await externalSupabase
         .from('study_streaks')
         .select('*')
         .eq('user_id', user.id)
@@ -36,11 +43,13 @@ export const useStudyStreak = () => {
         console.error('Error fetching streak:', error);
       }
 
+      const data = rawData as unknown as StudyStreakData | null;
+
       if (data) {
         setStreak({
           currentStreak: data.current_streak || 0,
           longestStreak: data.longest_streak || 0,
-          lastActivityDate: data.last_activity_date,
+          lastActivityDate: data.last_activity_date || null,
           totalStudyDays: data.total_study_days || 0
         });
       }
@@ -56,13 +65,15 @@ export const useStudyStreak = () => {
     if (!user?.id) return 0;
 
     try {
-      const { data } = await supabase
+      const { data } = await externalSupabase
         .from('lesson_progress')
         .select('watch_time_seconds')
         .eq('user_id', user.id);
 
-      if (data) {
-        const totalSeconds = data.reduce((acc, item) => acc + (item.watch_time_seconds || 0), 0);
+      const items = (data || []) as unknown as Array<{ watch_time_seconds?: number }>;
+      
+      if (items.length > 0) {
+        const totalSeconds = items.reduce((acc, item) => acc + (item.watch_time_seconds || 0), 0);
         return Math.round(totalSeconds / 3600); // Convert to hours
       }
     } catch (error) {
@@ -79,7 +90,7 @@ export const useStudyStreak = () => {
   useEffect(() => {
     if (!user?.id) return;
 
-    const channel = supabase
+    const channel = externalSupabase
       .channel('study-streak-changes')
       .on(
         'postgres_changes',
@@ -91,11 +102,11 @@ export const useStudyStreak = () => {
         },
         (payload) => {
           if (payload.new) {
-            const data = payload.new as any;
+            const data = payload.new as StudyStreakData;
             setStreak({
               currentStreak: data.current_streak || 0,
               longestStreak: data.longest_streak || 0,
-              lastActivityDate: data.last_activity_date,
+              lastActivityDate: data.last_activity_date || null,
               totalStudyDays: data.total_study_days || 0
             });
           }
@@ -104,7 +115,7 @@ export const useStudyStreak = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      externalSupabase.removeChannel(channel);
     };
   }, [user?.id]);
 

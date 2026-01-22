@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 
 interface StudentStats {
@@ -35,6 +35,43 @@ interface UnifiedDashboardData {
     timestamp: string;
     metadata?: Record<string, any>;
   }[];
+}
+
+interface EnrollmentData {
+  id: string;
+  progress_percent: number;
+  status: string;
+  product?: { name: string } | null;
+}
+
+interface CertificateData {
+  id: string;
+  course_name: string;
+  issued_at: string;
+}
+
+interface ExamAttemptData {
+  id: string;
+  score: number;
+  passed: boolean;
+  completed_at: string;
+  exam?: { title: string } | null;
+}
+
+interface AffiliateData {
+  id: string;
+  tier: string;
+  total_earnings: number;
+  referral_count: number;
+  is_creator: boolean;
+  status: string;
+}
+
+interface CommissionData {
+  id: string;
+  commission_amount: number;
+  status: string;
+  created_at: string;
 }
 
 const tierOrder = ['bronze', 'silver', 'gold', 'diamond', 'platinum'];
@@ -75,53 +112,56 @@ export function useUnifiedDashboard() {
     try {
       // Fetch student data
       const [
-        { data: enrollments },
-        { data: certificates },
-        { data: examAttempts },
-        { data: affiliate },
-        { data: commissions }
+        enrollmentsRes,
+        certificatesRes,
+        examAttemptsRes,
+        affiliateRes,
+        commissionsRes
       ] = await Promise.all([
-        supabase
+        externalSupabase
           .from('enrollments')
           .select('id, progress_percent, status, product:products(name)')
           .eq('user_id', user.id)
           .eq('status', 'active'),
-        supabase
+        externalSupabase
           .from('course_certificates')
           .select('id, course_name, issued_at')
           .eq('user_id', user.id),
-        supabase
+        externalSupabase
           .from('exam_attempts')
           .select('id, score, passed, completed_at, exam:financial_exams(title)')
           .eq('user_id', user.id)
           .eq('status', 'completed'),
-        supabase
+        externalSupabase
           .from('vip_affiliates')
           .select('id, tier, total_earnings, referral_count, is_creator, status')
           .eq('user_id', user.id)
           .eq('status', 'approved')
           .maybeSingle(),
-        supabase
+        externalSupabase
           .from('affiliate_commissions')
           .select('id, commission_amount, status, created_at')
           .eq('affiliate_id', user.id)
       ]);
 
+      const enrollments = (enrollmentsRes.data || []) as unknown as EnrollmentData[];
+      const certificates = (certificatesRes.data || []) as unknown as CertificateData[];
+      const examAttempts = (examAttemptsRes.data || []) as unknown as ExamAttemptData[];
+      const affiliate = affiliateRes.data as unknown as AffiliateData | null;
+      const commissions = (commissionsRes.data || []) as unknown as CommissionData[];
+
       // Calculate student stats
-      const enrollmentList = enrollments || [];
-      const completedCourses = enrollmentList.filter(e => (e.progress_percent || 0) >= 100).length;
-      const attemptsList = examAttempts || [];
-      const passedExams = attemptsList.filter(a => a.passed);
-      const avgScore = attemptsList.length > 0
-        ? Math.round(attemptsList.reduce((sum, a) => sum + (a.score || 0), 0) / attemptsList.length)
+      const completedCourses = enrollments.filter(e => (e.progress_percent || 0) >= 100).length;
+      const passedExams = examAttempts.filter(a => a.passed);
+      const avgScore = examAttempts.length > 0
+        ? Math.round(examAttempts.reduce((sum, a) => sum + (a.score || 0), 0) / examAttempts.length)
         : 0;
 
       // Calculate affiliate stats
-      const commissionsList = commissions || [];
-      const pendingCommissions = commissionsList.filter(c => c.status === 'pending');
+      const pendingCommissions = commissions.filter(c => c.status === 'pending');
       const thisMonth = new Date();
       thisMonth.setDate(1);
-      const salesThisMonth = commissionsList.filter(
+      const salesThisMonth = commissions.filter(
         c => new Date(c.created_at) >= thisMonth
       ).length;
 
@@ -148,7 +188,7 @@ export function useUnifiedDashboard() {
       const recentActivity: UnifiedDashboardData['recentActivity'] = [];
 
       // Add recent certificates
-      (certificates || []).slice(0, 3).forEach(cert => {
+      certificates.slice(0, 3).forEach(cert => {
         recentActivity.push({
           type: 'certificate',
           title: `Certificado: ${cert.course_name}`,
@@ -157,10 +197,10 @@ export function useUnifiedDashboard() {
       });
 
       // Add recent exams
-      attemptsList.slice(0, 3).forEach(exam => {
+      examAttempts.slice(0, 3).forEach(exam => {
         recentActivity.push({
           type: 'exam',
-          title: `Prova: ${(exam.exam as any)?.title || 'Simulado'}`,
+          title: `Prova: ${exam.exam?.title || 'Simulado'}`,
           timestamp: exam.completed_at || '',
           metadata: { score: exam.score, passed: exam.passed }
         });
@@ -173,13 +213,13 @@ export function useUnifiedDashboard() {
 
       setData({
         student: {
-          enrolledCourses: enrollmentList.length,
+          enrolledCourses: enrollments.length,
           completedCourses,
-          certificates: (certificates || []).length,
-          totalHoursStudied: Math.round(enrollmentList.length * 5), // Estimate
+          certificates: certificates.length,
+          totalHoursStudied: Math.round(enrollments.length * 5), // Estimate
           averageScore: avgScore,
           currentStreak: 0, // Would need daily tracking
-          examsCompleted: attemptsList.length,
+          examsCompleted: examAttempts.length,
           examsPassed: passedExams.length
         },
         affiliate: {

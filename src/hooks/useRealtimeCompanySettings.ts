@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 
 export interface CompanySettingsData {
   id: string;
@@ -52,7 +52,7 @@ export function useRealtimeCompanySettings() {
   const fetchSettings = async () => {
     try {
       setLoading(true);
-      const { data, error: fetchError } = await supabase
+      const { data, error: fetchError } = await externalSupabase
         .from('company_settings')
         .select('*')
         .limit(1)
@@ -61,7 +61,7 @@ export function useRealtimeCompanySettings() {
       if (fetchError) throw fetchError;
 
       if (data) {
-        setSettings(data as CompanySettingsData);
+        setSettings(data as unknown as CompanySettingsData);
       } else {
         // Return default settings if none exist
         setSettings({
@@ -87,7 +87,7 @@ export function useRealtimeCompanySettings() {
     fetchSettings();
 
     // Subscribe to realtime changes
-    const channel = supabase
+    const channel = externalSupabase
       .channel('company-settings-changes')
       .on(
         'postgres_changes',
@@ -111,7 +111,7 @@ export function useRealtimeCompanySettings() {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      externalSupabase.removeChannel(channel);
     };
   }, []);
 

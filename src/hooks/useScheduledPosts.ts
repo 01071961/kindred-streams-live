@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useToast } from '@/hooks/use-toast';
 
 interface ScheduledPost {
@@ -33,13 +33,13 @@ export const useScheduledPosts = () => {
 
   const fetchPosts = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await externalSupabase
         .from('scheduled_posts')
         .select('*')
         .order('scheduled_at', { ascending: true });
 
       if (error) throw error;
-      setPosts((data || []) as ScheduledPost[]);
+      setPosts((data || []) as unknown as ScheduledPost[]);
     } catch (error) {
       console.error('Error fetching scheduled posts:', error);
     } finally {
@@ -49,10 +49,11 @@ export const useScheduledPosts = () => {
 
   const createPost = async (input: CreatePostInput): Promise<string | null> => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: userData } = await externalSupabase.auth.getUser();
+      const user = userData?.user;
       if (!user) throw new Error('Não autenticado');
 
-      const { data, error } = await supabase
+      const { data, error } = await externalSupabase
         .from('scheduled_posts')
         .insert({
           user_id: user.id,
@@ -62,7 +63,7 @@ export const useScheduledPosts = () => {
           media_type: input.mediaType || 'image',
           scheduled_at: input.scheduledAt,
           status: 'pending'
-        })
+        } as any)
         .select()
         .single();
 
@@ -74,7 +75,7 @@ export const useScheduledPosts = () => {
       });
 
       fetchPosts();
-      return data.id;
+      return (data as any).id;
     } catch (error) {
       console.error('Error creating post:', error);
       toast({
@@ -91,7 +92,7 @@ export const useScheduledPosts = () => {
       const post = posts.find(p => p.id === postId);
       if (!post) throw new Error('Post não encontrado');
 
-      const { data, error } = await supabase.functions.invoke('publish-social', {
+      const { data, error } = await externalSupabase.functions.invoke('publish-social', {
         body: {
           platform: post.platform,
           content: post.content,
@@ -103,14 +104,14 @@ export const useScheduledPosts = () => {
       if (error) throw error;
 
       if (data?.success) {
-        await supabase
+        await externalSupabase
           .from('scheduled_posts')
           .update({
             status: 'published',
             published_at: new Date().toISOString(),
             facebook_post_id: data.results?.facebook?.postId,
             instagram_post_id: data.results?.instagram?.postId
-          })
+          } as any)
           .eq('id', postId);
 
         toast({
@@ -123,12 +124,12 @@ export const useScheduledPosts = () => {
       } else {
         const errorMsg = data?.results?.facebook?.error || data?.results?.instagram?.error || 'Erro desconhecido';
         
-        await supabase
+        await externalSupabase
           .from('scheduled_posts')
           .update({
             status: 'failed',
             error_message: errorMsg
-          })
+          } as any)
           .eq('id', postId);
 
         toast({
@@ -153,7 +154,7 @@ export const useScheduledPosts = () => {
 
   const deletePost = async (postId: string): Promise<boolean> => {
     try {
-      const { error } = await supabase
+      const { error } = await externalSupabase
         .from('scheduled_posts')
         .delete()
         .eq('id', postId);
@@ -180,9 +181,9 @@ export const useScheduledPosts = () => {
 
   const cancelPost = async (postId: string): Promise<boolean> => {
     try {
-      const { error } = await supabase
+      const { error } = await externalSupabase
         .from('scheduled_posts')
-        .update({ status: 'cancelled' })
+        .update({ status: 'cancelled' } as any)
         .eq('id', postId);
 
       if (error) throw error;
@@ -206,7 +207,7 @@ export const useScheduledPosts = () => {
 
   // Realtime subscription
   useEffect(() => {
-    const channel = supabase
+    const channel = externalSupabase
       .channel('scheduled-posts-changes')
       .on(
         'postgres_changes',
@@ -222,7 +223,7 @@ export const useScheduledPosts = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      externalSupabase.removeChannel(channel);
     };
   }, [fetchPosts]);
 

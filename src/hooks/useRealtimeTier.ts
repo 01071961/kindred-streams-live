@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 import { useAuth } from '@/auth';
 import { toast } from 'sonner';
 
@@ -56,6 +56,27 @@ const calculateTierFromPoints = (points: number): string => {
   return 'bronze';
 };
 
+interface ProfileData {
+  subscription_tier?: string;
+  subscription_status?: string;
+  subscription_end?: string;
+  stripe_customer_id?: string;
+}
+
+interface AffiliateData {
+  tier?: string;
+  direct_referrals_count?: number;
+  total_earnings?: number;
+  available_balance?: number;
+  status?: string;
+}
+
+interface PointsData {
+  current_balance?: number;
+  total_earned?: number;
+  tier?: string;
+}
+
 export const useRealtimeTier = () => {
   const { user } = useAuth();
   const isSyncing = useRef(false);
@@ -87,37 +108,37 @@ export const useRealtimeTier = () => {
     try {
       // Fetch from all relevant tables in parallel
       const [profileRes, affiliateRes, pointsRes, commissionsRes] = await Promise.all([
-        supabase
+        externalSupabase
           .from('profiles')
           .select('subscription_tier, subscription_status, subscription_end, stripe_customer_id')
           .eq('user_id', user.id)
           .maybeSingle(),
-        supabase
+        externalSupabase
           .from('vip_affiliates')
           .select('tier, direct_referrals_count, total_earnings, available_balance, status')
           .eq('user_id', user.id)
           .maybeSingle(),
-        supabase
+        externalSupabase
           .from('user_points')
           .select('current_balance, total_earned, tier')
           .eq('user_id', user.id)
           .maybeSingle(),
-        supabase
+        externalSupabase
           .from('affiliate_commissions')
           .select('id')
           .eq('affiliate_id', user.id)
           .eq('status', 'approved'),
       ]);
 
-      const profileData = profileRes.data;
-      const affiliateData = affiliateRes.data;
-      const pointsData = pointsRes.data;
+      const profileData = profileRes.data as unknown as ProfileData | null;
+      const affiliateData = affiliateRes.data as unknown as AffiliateData | null;
+      const pointsData = pointsRes.data as unknown as PointsData | null;
 
       // Get real values
       const currentPoints = pointsData?.current_balance || 0;
       const totalPoints = pointsData?.total_earned || 0;
       const directReferrals = affiliateData?.direct_referrals_count || 0;
-      const totalSales = commissionsRes.data?.length || 0;
+      const totalSales = (commissionsRes.data as any[])?.length || 0;
       const availableBalance = affiliateData?.available_balance || affiliateData?.total_earnings || 0;
 
       // Normalize tiers from all sources
@@ -179,12 +200,12 @@ export const useRealtimeTier = () => {
     isSyncing.current = true;
     
     try {
-      const { data: session } = await supabase.auth.getSession();
+      const { data: session } = await externalSupabase.auth.getSession();
       if (!session?.session?.access_token) {
         throw new Error('No session');
       }
 
-      const { data, error } = await supabase.functions.invoke('check-subscription', {
+      const { data, error } = await externalSupabase.functions.invoke('check-subscription', {
         headers: { Authorization: `Bearer ${session.session.access_token}` },
       });
 
@@ -218,7 +239,7 @@ export const useRealtimeTier = () => {
   useEffect(() => {
     if (!user?.id) return;
 
-    const channel = supabase
+    const channel = externalSupabase
       .channel(`tier-sync-complete-${user.id}`)
       .on(
         'postgres_changes',
@@ -262,7 +283,7 @@ export const useRealtimeTier = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      externalSupabase.removeChannel(channel);
     };
   }, [user?.id, fetchTier]);
 

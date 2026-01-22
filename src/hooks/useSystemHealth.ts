@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/supabase/externalClient';
 
 interface ServiceHealth {
   service_name: string;
@@ -17,14 +17,14 @@ export const useSystemHealth = () => {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await externalSupabase
         .from('system_health_status')
         .select('*')
         .order('service_name');
 
       if (error) throw error;
       
-      setServices((data || []) as ServiceHealth[]);
+      setServices((data || []) as unknown as ServiceHealth[]);
       setLastUpdate(new Date());
     } catch (error) {
       console.error('Error fetching system health:', error);
@@ -40,7 +40,7 @@ export const useSystemHealth = () => {
     try {
       // Check Database
       const dbStart = Date.now();
-      const { error: dbError } = await supabase
+      const { error: dbError } = await externalSupabase
         .from('profiles')
         .select('id', { count: 'exact', head: true })
         .limit(1);
@@ -51,7 +51,7 @@ export const useSystemHealth = () => {
       // Check Backend (edge functions)
       const efStart = Date.now();
       try {
-        const { error: efError } = await supabase.functions.invoke('stripe-config', {
+        const { error: efError } = await externalSupabase.functions.invoke('stripe-config', {
           body: { action: 'check' }
         });
         const efTime = Date.now() - efStart;
@@ -63,7 +63,7 @@ export const useSystemHealth = () => {
       // Check Stripe
       const stripeStart = Date.now();
       try {
-        const { data: stripeData, error: stripeError } = await supabase.functions.invoke('stripe-health-check');
+        const { data: stripeData, error: stripeError } = await externalSupabase.functions.invoke('stripe-health-check');
         const stripeTime = Date.now() - stripeStart;
         const stripeStatus = stripeData?.status === 'healthy' ? 'operational' : 'degraded';
         await updateServiceStatus('payment_api', stripeStatus, stripeTime, stripeError?.message);
@@ -73,7 +73,7 @@ export const useSystemHealth = () => {
 
       // Check Storage
       const storageStart = Date.now();
-      const { data: buckets, error: storageError } = await supabase.storage.listBuckets();
+      const { data: buckets, error: storageError } = await externalSupabase.storage.listBuckets();
       const storageTime = Date.now() - storageStart;
       await updateServiceStatus('storage', storageError ? 'degraded' : 'operational', storageTime, storageError?.message);
 
@@ -95,17 +95,17 @@ export const useSystemHealth = () => {
     serviceName: string,
     status: 'operational' | 'degraded' | 'down' | 'maintenance',
     responseTime: number,
-    errorMessage: string | null
+    errorMessage: string | null | undefined
   ) => {
     try {
-      await supabase
+      await externalSupabase
         .from('system_health_status')
         .update({
           status,
           response_time_ms: responseTime,
-          error_message: errorMessage,
+          error_message: errorMessage || null,
           last_check_at: new Date().toISOString()
-        })
+        } as any)
         .eq('service_name', serviceName);
     } catch (error) {
       console.error(`Failed to update ${serviceName} status:`, error);
@@ -125,7 +125,7 @@ export const useSystemHealth = () => {
 
   // Realtime subscription
   useEffect(() => {
-    const channel = supabase
+    const channel = externalSupabase
       .channel('health-status-changes')
       .on(
         'postgres_changes',
@@ -141,7 +141,7 @@ export const useSystemHealth = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      externalSupabase.removeChannel(channel);
     };
   }, [fetchStatus]);
 
